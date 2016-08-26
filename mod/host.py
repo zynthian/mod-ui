@@ -1900,6 +1900,13 @@ _:b%i
             self._uri2hw_map[knob_uri] = knob_hw
             self._uri2hw_map[foot_uri] = foot_hw
 
+        # hack for control chain testing
+        foot_ids  = [(1,0), (1,1), (1,2), (1,3)]
+        foot_uris = ["/footex/footswitch1", "/footex/footswitch2", "/footex/footswitch3", "/footex/footswitch4"]
+        for i in range(len(foot_ids)):
+            self._hw2uri_map[foot_ids[i]]  = foot_uris[i]
+            self._uri2hw_map[foot_uris[i]] = foot_ids[i]
+
     # -----------------------------------------------------------------------------------------------------------------
 
     def _addressing_load(self, actuator_uri, callback, value=None, skipPresets=False):
@@ -1931,6 +1938,15 @@ _:b%i
         else:
             curvalue = plugin['ports'][portsymbol]
 
+        if len(actuator_hw) == 2:
+            # special hack for control chain testing
+            self.prev_cc_instance_id = addressing['instance_id']
+            self.prev_cc_portsymbol = portsymbol
+            self.send("cc_map %i %s %i %i" % (self.prev_cc_instance_id, self.prev_cc_portsymbol,
+                                              actuator_hw[0], actuator_hw[1]), callback)
+            callback(True)
+            return
+
         self.hmi.control_add(addressing['instance_id'], portsymbol,
                              addressing['label'], addressing['type'], addressing['unit'],
                              curvalue, addressing['maximum'], addressing['minimum'], addressing['steps'],
@@ -1950,6 +1966,11 @@ _:b%i
             addressings['idx'] = (addressings_idx + 1) % len(addressings_addrs)
             self._addressing_load(actuator_uri, callback)
         else:
+            if len(actuator_hw) == 2:
+                # special hack for control chain testing
+                self.send("cc_unmap %i %s" % (self.prev_cc_instance_id, self.prev_cc_portsymbol), callback)
+                return
+
             self.hmi.control_clean(actuator_hw[0], actuator_hw[1], actuator_hw[2], actuator_hw[3], callback)
 
     def _unaddress(self, pluginData, port):
