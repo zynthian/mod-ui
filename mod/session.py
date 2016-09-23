@@ -25,7 +25,6 @@ from tornado import iostream, ioloop, gen
 
 from mod.settings import (MANAGER_PORT, DEV_ENVIRONMENT, DEV_HMI, DEV_HOST,
                           HMI_SERIAL_PORT, HMI_BAUD_RATE, HOST_CARLA)
-from mod import get_hardware
 from mod.bank import get_last_bank_and_pedalboard
 from mod.development import FakeHost, FakeHMI
 from mod.hmi import HMI
@@ -77,9 +76,7 @@ class Session(object):
         self.host.end_session(lambda r:None)
 
     def get_hardware(self):
-        hw = deepcopy(get_hardware())
-        hw["addressings"] = self.host.get_addressings()
-        return hw
+        return self.host.addressings.get_status()
 
     # -----------------------------------------------------------------------------------------------------------------
     # App utilities, needed only for mod-app
@@ -121,10 +118,6 @@ class Session(object):
 
     # Address a plugin parameter
     def web_parameter_address(self, port, actuator_uri, label, maximum, minimum, value, steps, callback):
-        if not (self.hmi.initialized or actuator_uri.startswith("/midi-")):
-            callback(False)
-            return
-
         instance, portsymbol = port.rsplit("/",1)
         self.host.address(instance, portsymbol, actuator_uri, label, maximum, minimum, value, steps, callback)
 

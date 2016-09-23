@@ -20,8 +20,12 @@ var kNullAddressURI = "null"
 
 // Special URIs for midi-learn
 var kMidiLearnURI = "/midi-learn"
-var kMidiUnmapURI = "/midi-unmap"
+var kMidiUnlearnURI = "/midi-unlearn"
 var kMidiCustomPrefixURI = "/midi-custom_" // to show current one, ignored on save
+
+function create_midi_cc_uri (channel, controller) {
+    return snprintf("%sCh.%i_CC#%i", kMidiCustomPrefixURI, channel+1, controller)
+}
 
 function HardwareManager(options) {
     var self = this
@@ -362,10 +366,10 @@ function HardwareManager(options) {
                 return
             }
 
-            // if changing from midi-learn, unmap first
-            if (currentAddressing.uri && (currentAddressing.uri == kMidiLearnURI || currentAddressing.uri.lastIndexOf(kMidiCustomPrefixURI, 0) === 0)) {
+            // if changing from midi-learn, unlearn first
+            if (currentAddressing.uri && (currentAddressing.uri == kMidiLearnURI /*|| currentAddressing.uri.lastIndexOf(kMidiCustomPrefixURI, 0) === 0*/)) {
                 var addressing = {
-                    uri    : kMidiUnmapURI,
+                    uri    : kMidiUnlearnURI,
                     label  : label.val() || pname,
                     minimum: minv,
                     maximum: maxv,
@@ -446,7 +450,7 @@ function HardwareManager(options) {
 
     this.addMidiMapping = function (instance, portSymbol, channel, control) {
         var instanceAndSymbol = instance+"/"+portSymbol
-        var mappingURI = kMidiCustomPrefixURI + "Ch." + (channel+1).toString() + "_CC#" + control.toString()
+        var mappingURI = create_midi_cc_uri(channel, control)
 
         self.addressingsByActuator  [kMidiLearnURI].push(instanceAndSymbol)
         self.addressingsByPortSymbol[instanceAndSymbol] = mappingURI
