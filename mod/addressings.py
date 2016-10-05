@@ -217,6 +217,8 @@ class Addressings(object):
             if "enumeration" in pprops and len(port_info["scalePoints"]) > 0:
                 options = [(sp["value"], sp["label"]) for sp in port_info["scalePoints"]]
 
+        # TODO do something with spreset
+
         addressing_data = {
             'actuator_uri': actuator_uri,
             'instance_id' : instance_id,
@@ -237,7 +239,7 @@ class Addressings(object):
                 hmiunit = "(none)"
 
             elif portsymbol == ":presets":
-                hmitype = HMI_ADDRESSING_TYPE_SCALE_POINTS|HMI_ADDRESSING_TYPE_ENUMERATION|HMI_ADDRESSING_TYPE_INTEGER
+                hmitype = HMI_ADDRESSING_TYPE_ENUMERATION|HMI_ADDRESSING_TYPE_INTEGER
                 hmiunit = "(none)"
 
             else:
@@ -329,6 +331,7 @@ class Addressings(object):
 
             if addressings['idx'] == index:
                 addressings['idx'] -= 1
+                # FIXME need to show next after this
 
         elif actuator_type == self.ADDRESSING_TYPE_CC:
             addressings = self.cc_addressings[actuator_uri]
@@ -353,28 +356,19 @@ class Addressings(object):
             return
 
         # current addressing data
-        addressing = addressings_addrs[addressings_idx]
+        addressing_data = addressings_addrs[addressings_idx].copy()
 
-        data = {
-            'instance_id': addressing['instance_id'],
-            'portsymbol' : addressing['portsymbol'],
-            'label'      : addressing['label'],
-            'value'      : addressing['value'],
-            'maximum'    : addressing['maximum'],
-            'minimum'    : addressing['minimum'],
-            'steps'      : addressing['steps'],
-            'options'    : addressing['options'],
-            # hmi specific
-            'hmitype'    : addressing['hmitype'],
-            'hmiunit'    : addressing['hmiunit'],
-            'addrs_idx'  : addressings_idx+1,
-            'addrs_max'  : addressings_len,
-        }
-        self._task_addressing(self.ADDRESSING_TYPE_HMI, actuator_hmi, data, callback)
+        # needed fields for addressing task
+        addressing_data['addrs_idx'] = addressings_idx+1
+        addressing_data['addrs_max'] = addressings_len
+
+        self._task_addressing(self.ADDRESSING_TYPE_HMI, actuator_hmi, addressing_data, callback)
 
     def hmi_load_footswitches(self, callback):
         def footswitch1_callback(ok):
             self.hmi_load_current("/hmi/footswitch2", callback)
+
+        # FIXME reload value?
 
         self.hmi_load_current("/hmi/footswitch1", footswitch1_callback)
 
@@ -388,6 +382,8 @@ class Addressings(object):
 
         # jump to first addressing
         addressings['idx'] = 0
+
+        # FIXME reload value?
 
         # ready to load
         self.hmi_load_current(actuator_uri, callback)
@@ -406,7 +402,7 @@ class Addressings(object):
         # jump to next available addressing
         addressings['idx'] = (addressings['idx'] + 1) % addressings_len
 
-        # reload current value
+        # reload value
         addressing = addressings_addrs[addressings['idx']]
         addressing['value'] = self._task_get_port_value(addressing['instance_id'], addressing['portsymbol'])
 
