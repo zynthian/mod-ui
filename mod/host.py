@@ -397,6 +397,7 @@ class Host(object):
     # -----------------------------------------------------------------------------------------------------------------
     # Initialization
 
+    @gen.coroutine
     def init_host(self):
         self.init_jack()
         self.open_connection_if_needed(None)
@@ -406,13 +407,14 @@ class Host(object):
 
         bank_id, pedalboard = get_last_bank_and_pedalboard()
 
+        yield gen.Task(self.send, "remove -1", datatype='boolean')
+
         if pedalboard:
             self.bank_id = bank_id
             self.load(pedalboard)
 
         else:
             self.bank_id = 0
-            self.send("remove -1")
 
             if os.path.exists(DEFAULT_PEDALBOARD):
                 self.load(DEFAULT_PEDALBOARD, True)
@@ -426,6 +428,7 @@ class Host(object):
             navigateChannel      = 15
 
         self.send("midi_program_listen %d %d" % (int(not navigateFootswitches), navigateChannel))
+        self.send("output_data_ready")
 
     def init_jack(self):
         self.audioportsIn  = []
@@ -865,6 +868,9 @@ class Host(object):
                 if value is None:
                     continue
                 websocket.write_message("output_set %s %s %f" % (plugin['instance'], symbol, value))
+
+                if crashed:
+                    self.send("monitor_output %d %s" % (instance_id, symbol))
 
             for symbol, data in plugin['midiCCs'].items():
                 if -1 not in data and symbol not in badports:
