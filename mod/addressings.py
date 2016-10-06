@@ -46,11 +46,17 @@ class Addressings(object):
         self._task_get_plugin_data = None
         self._task_get_port_value = None
 
-        self.cc = ControlChain('/dev/ttyS3', 115200)
-        self.cc.data_update_cb(self.cc_data_update_callback)
-        self.cc.dev_descriptor_cb(self.cc_dev_descriptor_callback)
+        try:
+            self.cc = ControlChain('/dev/ttyS3', 115200)
+        except OSError:
+            self.cc = None
+        else:
+            self.cc.data_update_cb(self.cc_data_update_callback)
+            self.cc.dev_descriptor_cb(self.cc_dev_descriptor_callback)
 
-        self.cc_dev_descriptor_callback({'actuators':[{'id':0},{'id':1},{'id':2},{'id':3}],'id':1,'label':''})
+        # TODO: remove this
+        if self.cc is not None:
+            self.cc_dev_descriptor_callback({'actuators':[{'id':0},{'id':1},{'id':2},{'id':3}],'id':1,'label':''})
 
     # -----------------------------------------------------------------------------------------------------------------
 

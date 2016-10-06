@@ -350,14 +350,13 @@ class Host(object):
                                                      ), callback, datatype='boolean')
 
         if atype == Addressings.ADDRESSING_TYPE_MIDI:
-            # TODO: add maximum and minimum
-            return self.send("midi_map %d %s %i %i" % (data['instance_id'],
-                                                       data['portsymbol'],
-                                                       data['midichannel'],
-                                                       data['midicontrol'],
-                                                       #data['maximum'],
-                                                       #data['minimum'],
-                                                       ), callback, datatype='boolean')
+            return self.send("midi_map %d %s %i %i %f %f" % (data['instance_id'],
+                                                             data['portsymbol'],
+                                                             data['midichannel'],
+                                                             data['midicontrol'],
+                                                             data['maximum'],
+                                                             data['minimum'],
+                                                            ), callback, datatype='boolean')
 
         print("ERROR: Invalid addressing requested for", actuator)
         callback(False)
@@ -651,8 +650,8 @@ class Host(object):
                 channel     = int(msg[3])
                 controller  = int(msg[4])
                 value       = float(msg[5])
-                maximum     = float(0) # TODO
-                minimum     = float(0) # TODO
+                maximum     = float(msg[6])
+                minimum     = float(msg[7])
 
                 if portsymbol == ":bypass":
                     #self.plugins[instance_id]['bypassCC'] = (channel, controller)
@@ -664,7 +663,9 @@ class Host(object):
                 self.addressings.add_midi(instance_id, portsymbol, channel, controller, maximum, minimum)
 
                 instance = self.mapper.get_instance(instance_id)
-                self.msg_callback("midi_map %s %s %i %i" % (instance, portsymbol, channel, controller)) # TODO max/min
+                self.msg_callback("midi_map %s %s %i %i %f %f" % (instance, portsymbol,
+                                                                  channel, controller,
+                                                                  maximum, minimum))
                 self.msg_callback("param_set %s %s %f" % (instance, portsymbol, value))
 
             elif cmd == "midi_program":
@@ -1933,8 +1934,10 @@ _:b%i
         old_addressing = pluginData['addressings'].pop(portsymbol, None)
         if old_addressing is not None:
             print("unaddressed", old_addressing)
+            old_actuator_uri  = old_addressing['actuator_uri']
+            old_actuator_type = self.addressings.get_actuator_type(old_actuator_uri)
             self.addressings.remove(old_addressing)
-            yield gen.Task(self.addr_task_unaddressing, self.addressings.get_actuator_type(old_addressing['actuator_uri']),
+            yield gen.Task(self.addr_task_unaddressing, old_actuator_type,
                                                         old_addressing['instance_id'],
                                                         old_addressing['portsymbol'])
 
@@ -1952,9 +1955,11 @@ _:b%i
 
         # MIDI learn is not an actual addressing
         if actuator_uri == kMidiLearnURI:
-            # TODO: pass maximum and minimum
             print("Starting MIDI learn")
-            return self.send("midi_learn %d %s" % (instance_id, portsymbol), callback, datatype='boolean')
+            return self.send("midi_learn %d %s %f %f" % (instance_id,
+                                                         portsymbol,
+                                                         maximum,
+                                                         minimum), callback, datatype='boolean')
 
         addressing = self.addressings.add(instance_id, pluginData['uri'], portsymbol, actuator_uri,
                                           label, maximum, minimum, steps, value)

@@ -50,6 +50,7 @@ DEVDESC_CB = CFUNCTYPE(None, POINTER(DevDescriptor))
 
 class ControlChain(object):
     def __init__(self, serial_port, baudrate):
+        self.obj = None
         self.lib = cdll.LoadLibrary("libcontrol_chain.so")
 
         # cc_handle_t* cc_init(const char *port_name, int baudrate);
