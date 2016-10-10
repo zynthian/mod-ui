@@ -408,6 +408,8 @@ class Host(object):
 
         yield gen.Task(self.send, "remove -1", datatype='boolean')
 
+        # FIXME: ensure HMI is initialized by now
+
         if pedalboard:
             self.bank_id = bank_id
             self.load(pedalboard)
@@ -506,7 +508,7 @@ class Host(object):
         cfgact = BANK_CONFIG_PEDALBOARD_DOWN if enabled else BANK_CONFIG_NOTHING
         self.hmi.bank_config(acthw[0], acthw[1], acthw[2], acthw[3], cfgact, foot2_callback)
 
-    def initialize_hmi(self, uiConnected, loadAddressings, callback):
+    def initialize_hmi(self, uiConnected, callback):
         # If UI is already connected, do nothing
         if uiConnected:
             callback(True)
@@ -546,14 +548,6 @@ class Host(object):
             pedalboard = ""
             pedalboards = []
 
-        # load addressings if requested, regardless of bank
-        if pedalboard and loadAddressings:
-            instances = {}
-            for i in range(len(self.plugins)):
-                instance = self.plugins[i]['instance']
-                instances[instance] = i
-            self.addressings.load(pedalboard, instances)
-
         def footswitch_callback(ok):
             self.setNavigateWithFootswitches(True, callback)
 
@@ -592,7 +586,7 @@ class Host(object):
             return
 
         def initialize_callback(ok):
-            self.initialize_hmi(False, False, callback)
+            self.initialize_hmi(False, callback)
 
         self.banks = list_banks()
         self.allpedalboards = get_all_good_pedalboards()
@@ -1358,7 +1352,7 @@ class Host(object):
             instance    = "/graph/%s" % p['instance']
             instance_id = self.mapper.get_id(instance)
 
-            instances[instance] = instance_id
+            instances[instance] = (instance_id, p['uri'])
 
             allports = get_plugin_control_inputs_and_monitored_outputs(p['uri'])
             badports = []

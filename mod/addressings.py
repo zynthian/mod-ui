@@ -165,11 +165,11 @@ class Addressings(object):
 
         for actuator_uri in data:
             for addr in data[actuator_uri]:
-                instance    = addr['instance']
-                instance_id = instances[instance]
-                plugin_uri  = addr['uri']
-                portsymbol  = addr['port']
-                curvalue    = self._task_get_port_value(instance, portsymbol)
+                instance   = addr['instance']
+                instance_id,\
+                plugin_uri = instances[instance]
+                portsymbol = addr['port']
+                curvalue   = self._task_get_port_value(instance_id, portsymbol)
 
                 self.add(instance_id, plugin_uri, portsymbol, actuator_uri,
                          addr['label'], addr['maximum'], addr['minimum'], addr['steps'], curvalue)
