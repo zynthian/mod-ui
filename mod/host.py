@@ -985,13 +985,20 @@ class Host(object):
         used_hmi_actuators = []
         for symbol in [symbol for symbol in data['addressings'].keys()]:
             print("remove_plugin address", symbol)
-            addressing   = data['addressings'].pop(symbol)
-            actuator_uri = addressing['actuator_uri']
+            addressing    = data['addressings'].pop(symbol)
+            actuator_uri  = addressing['actuator_uri']
+            actuator_type = self.addressings.get_actuator_type(actuator_uri)
 
             self.addressings.remove(addressing)
 
-            if actuator_uri not in used_hmi_actuators and self.addressings.is_hmi_actuator(actuator_uri):
-                used_hmi_actuators.append(actuator_uri)
+            if actuator_type == Addressings.ADDRESSING_TYPE_HMI:
+                if actuator_uri not in used_hmi_actuators:
+                    used_hmi_actuators.append(actuator_uri)
+
+            elif actuator_type == Addressings.ADDRESSING_TYPE_CC:
+                yield gen.Task(self.addr_task_unaddressing, actuator_type,
+                                                            addressing['instance_id'],
+                                                            addressing['portsymbol'])
 
         for actuator_uri in used_hmi_actuators:
             yield gen.Task(self.addressings.hmi_load_current, actuator_uri)
