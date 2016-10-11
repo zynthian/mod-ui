@@ -251,7 +251,8 @@ class Addressings(object):
                     hmitype |= HMI_ADDRESSING_TYPE_LOGARITHMIC
                 if "trigger" in pprops:
                     hmitype |= HMI_ADDRESSING_TYPE_TRIGGER
-                if "tap_tempo" in pprops: # TODO: do not set this prop for knobs
+
+                if "tapTempo" in pprops and actuator_uri.startswith("/hmi/footswitch"):
                     hmitype |= HMI_ADDRESSING_TYPE_TAP_TEMPO
 
                 if "enumeration" in pprops and len(port_info["scalePoints"]) > 0:

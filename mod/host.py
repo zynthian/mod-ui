@@ -50,30 +50,10 @@ from mod.settings import (DEFAULT_PEDALBOARD, LV2_PEDALBOARDS_DIR,
                           TUNER_URI, TUNER_INSTANCE, TUNER_INPUT_PORT, TUNER_MONITOR_PORT)
 from mod.tuner import find_freqnotecents
 
-ADDRESSING_CTYPE_LINEAR       = 0
-ADDRESSING_CTYPE_BYPASS       = 1
-ADDRESSING_CTYPE_TAP_TEMPO    = 2
-ADDRESSING_CTYPE_ENUMERATION  = 4 # implies scalepoints
-ADDRESSING_CTYPE_SCALE_POINTS = 8
-ADDRESSING_CTYPE_TRIGGER      = 16
-ADDRESSING_CTYPE_TOGGLED      = 32
-ADDRESSING_CTYPE_LOGARITHMIC  = 64
-ADDRESSING_CTYPE_INTEGER      = 128
-
-ACTUATOR_TYPE_FOOTSWITCH = 1
-ACTUATOR_TYPE_KNOB       = 2
-ACTUATOR_TYPE_POT        = 3
-
 BANK_CONFIG_NOTHING         = 0
 BANK_CONFIG_TRUE_BYPASS     = 1
 BANK_CONFIG_PEDALBOARD_UP   = 2
 BANK_CONFIG_PEDALBOARD_DOWN = 3
-
-HARDWARE_TYPE_MOD    = 0
-HARDWARE_TYPE_PEDAL  = 1
-HARDWARE_TYPE_TOUCH  = 2
-HARDWARE_TYPE_ACCEL  = 3
-HARDWARE_TYPE_CUSTOM = 4
 
 # Special URI for non-addressed controls
 kNullAddressURI = "null"
@@ -81,7 +61,7 @@ kNullAddressURI = "null"
 # Special URIs for midi-learn
 kMidiLearnURI = "/midi-learn"
 kMidiUnlearnURI = "/midi-unlearn"
-kMidiCustomPrefixURI = "/midi-custom_" # to show current one
+#kMidiCustomPrefixURI = "/midi-custom_" # to show current one
 
 # Limits
 kMaxAddressableScalepoints = 100
