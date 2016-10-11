@@ -47,7 +47,21 @@ class Addressings(object):
 
         # TODO: remove this
         if os.getenv("CONTROL_CHAIN_TEST"):
-            self.cc_dev_descriptor_callback({'actuators':[{'id':0},{'id':1},{'id':2},{'id':3}],'id':1,'label':'footex'})
+            dev_label = "footex"
+            dev_id    = 1
+
+            for actuator_id in range(4):
+                actuator_uri  = "/cc/%d/%d" % (dev_id, actuator_id)
+                actuator_name = "Footex %d:%d" % (dev_id, actuator_id+1),
+
+                self.cc_addressings[actuator_uri] = []
+                self.cc_metadata[actuator_uri] = {
+                    'hw_id': (dev_id, actuator_id),
+                    'name' : actuator_name,
+                    'modes': ":trigger:toggled:",
+                    'steps': [],
+                    'max_assigns': 1,
+                }
 
     # -----------------------------------------------------------------------------------------------------------------
 
@@ -429,41 +443,6 @@ class Addressings(object):
             yield gen.Task(self._task_addressing, self.ADDRESSING_TYPE_CC, actuator_cc, data)
 
         callback(True)
-
-    def cc_data_update_callback(self, updates):
-        print("cc_data_update_callback", updates)
-
-    def cc_dev_descriptor_callback(self, dev_desc):
-        print("cc_dev_descriptor_callback", dev_desc)
-        # {
-        #  'actuators': [{'id': 0}, {'id': 1}, {'id': 2}, {'id': 3}],
-        #  'id': 1,
-        #  'label': 'footex'
-        # }
-
-        dev_label = dev_desc['label']
-        dev_id    = dev_desc['id']
-
-        for actuator in dev_desc['actuators']:
-            actuator_id  = actuator['id']
-            actuator_uri = "/cc/%d/%d" % (dev_id, actuator_id)
-
-            if len(dev_desc['actuators']) > 1:
-                actuator_name = "%s %d:%d" % (dev_label.title(), dev_id, actuator_id+1),
-            else:
-                actuator_name = "%s %d" % (dev_label.title(), dev_id),
-
-            self.cc_addressings[actuator_uri] = []
-            self.cc_metadata[actuator_uri] = {
-                'hw_id': (dev_id, actuator_id),
-                'name' : actuator_name,
-                'modes': ":trigger:toggled:", # TODO
-                'steps': [], # TODO
-                'max_assigns': 1, # TODO
-            }
-
-        print(self.cc_addressings)
-        print(self.cc_metadata)
 
     # -----------------------------------------------------------------------------------------------------------------
     # MIDI specific functions
