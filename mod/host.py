@@ -1519,7 +1519,7 @@ class Host(object):
     def save_state_to_ttl(self, bundlepath, title, titlesym):
         self.save_state_manifest(bundlepath, titlesym)
         self.save_state_mainfile(bundlepath, title, titlesym)
-        self.addressings.save(bundlepath)
+        self.save_state_addressings(bundlepath)
 
     def save_state_manifest(self, bundlepath, titlesym):
         # Write manifest.ttl
@@ -1854,6 +1854,14 @@ _:b%i
         # Write the main pedalboard file
         with open(os.path.join(bundlepath, "%s.ttl" % titlesym), 'w') as fh:
             fh.write(pbdata)
+
+    def save_state_addressings(self, bundlepath):
+        instances = {}
+        for instance_id, plugin in self.plugins.items():
+            instance = plugin['instance']
+            instances[instance_id] = instance
+
+        self.addressings.save(bundlepath, instances)
 
     # -----------------------------------------------------------------------------------------------------------------
     # Host stuff - misc

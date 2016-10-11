@@ -194,8 +194,15 @@ class Addressings(object):
             elif actuator_type == self.ADDRESSING_TYPE_MIDI:
                 yield gen.Task(self.midi_load_all, actuator_uri)
 
-    def save(self, bundlepath):
+    def save(self, bundlepath, instances):
         addressings = self.get_addressings()
+
+        # TODO: verify compatibility with old manual save format
+
+        for uri, addrs in addressings.items():
+            for addr in addrs:
+                addr['instance'] = instances[addr.pop('instance_id')]
+                addr['port'    ] = instances[addr.pop('portsymbol')]
 
         with open(os.path.join(bundlepath, "addressings.json"), 'w') as fh:
             json.dump(addressings, fh)
