@@ -6,7 +6,6 @@ import os
 
 from tornado import gen
 from mod import get_hardware
-from mod.control_chain import ControlChain
 from mod.utils import get_plugin_info, get_plugin_control_inputs_and_monitored_outputs
 
 HMI_ADDRESSING_TYPE_LINEAR       = 0
@@ -46,17 +45,9 @@ class Addressings(object):
         self._task_get_plugin_data = None
         self._task_get_port_value = None
 
-        try:
-            self.cc = ControlChain('/dev/ttyS3', 115200)
-        except OSError:
-            self.cc = None
-        else:
-            self.cc.data_update_cb(self.cc_data_update_callback)
-            self.cc.dev_descriptor_cb(self.cc_dev_descriptor_callback)
-
         # TODO: remove this
-        if self.cc is not None:
-            self.cc_dev_descriptor_callback({'actuators':[{'id':0},{'id':1},{'id':2},{'id':3}],'id':1,'label':''})
+        if os.getenv("CONTROL_CHAIN_TEST"):
+            self.cc_dev_descriptor_callback({'actuators':[{'id':0},{'id':1},{'id':2},{'id':3}],'id':1,'label':'footex'})
 
     # -----------------------------------------------------------------------------------------------------------------
 
@@ -446,11 +437,10 @@ class Addressings(object):
         # {
         #  'actuators': [{'id': 0}, {'id': 1}, {'id': 2}, {'id': 3}],
         #  'id': 1,
-        #  'label': ''
+        #  'label': 'footex'
         # }
 
-        # FIXME: no label
-        dev_label = dev_desc['label'] or "footex"
+        dev_label = dev_desc['label']
         dev_id    = dev_desc['id']
 
         for actuator in dev_desc['actuators']:
