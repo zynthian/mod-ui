@@ -389,6 +389,7 @@ JqueryClass('effectBox', {
                 name  : plugin.name,
                 label : plugin.label,
                 ports : plugin.ports,
+                installed: true
             }
 
             var info = $(Mustache.render(TEMPLATES.cloudplugin_info, metadata))
@@ -403,6 +404,10 @@ JqueryClass('effectBox', {
             if (plugin.ports.control.input.length == 0) {
                 info.find('.plugin-controlports').hide()
             }
+            
+            info.find('.favorite-button').on('click', function() {
+                $(this).toggleClass('favorite');
+            });
 
             info.window({
                 windowManager: self.data('windowManager'),

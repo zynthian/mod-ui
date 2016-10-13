@@ -1997,13 +1997,16 @@ _:b%i
         else:
             pedalboards = self.banks[bank_id-1]['pedalboards']
 
-        numBytesFree = 2048-64
+        numBytesFree = 1024-64
         pedalboardsData = None
 
         num = 0
         for pb in pedalboards:
+            if num > 50:
+                break
+
             title   = pb['title'].replace('"', '').upper()[:31]
-            data    = '"%s" "%i"' % (title, num)
+            data    = '"%s" %i' % (title, num)
             dataLen = len(data)
 
             if numBytesFree-dataLen-2 < 0:
@@ -2071,18 +2074,22 @@ _:b%i
         bundlepath = pedalboards[pedalboard_id]['bundle']
 
         def loaded2_callback(ok):
-            next_pedalboard = self.next_hmi_pedalboard
-            self.next_hmi_pedalboard = None
+            if self.next_hmi_pedalboard is None:
+                print("ERROR: Delayed loading is in corrupted state")
+                return
             if ok:
-                print("NOTE: Delayed loading of %i:%i has started" % next_pedalboard)
+                print("NOTE: Delayed loading of %i:%i has started" % self.next_hmi_pedalboard)
             else:
-                print("NOTE: Delayed loading of %i:%i failed!" % next_pedalboard)
+                print("ERROR: Delayed loading of %i:%i failed!" % self.next_hmi_pedalboard)
 
         def loaded_callback(ok):
+            print("NOTE: Loading of %i:%i finished" % (bank_id, pedalboard_id))
+
+            # Check if there's a pending pedalboard to be loaded
             next_pedalboard = self.next_hmi_pedalboard
             self.next_hmi_pedalboard = None
 
-            if next_pedalboard is not None and next_pedalboard != (bank_id, pedalboard_id):
+            if next_pedalboard != (bank_id, pedalboard_id):
                 self.hmi_load_bank_pedalboard(next_pedalboard[0], next_pedalboard[1], loaded2_callback)
 
         def load_callback(ok):
