@@ -5,7 +5,7 @@ import json
 import os
 
 from tornado import gen
-from mod import get_hardware
+from mod import get_hardware_actuators
 from mod.utils import get_plugin_info, get_plugin_control_inputs_and_monitored_outputs
 
 HMI_ADDRESSING_TYPE_LINEAR       = 0
@@ -67,17 +67,12 @@ class Addressings(object):
 
     # initialize (clear) all addressings
     def init(self):
-        mod_hw = get_hardware()
-
         # 'hmi_addressings' uses a structure like this:
         # "/hmi/knob1": {'addrs': [...], 'idx': 0}
         # so per actuator we get:
         #  - 'addrs': list of addressings
         #  - 'idx'  : currently selected addressing (index)
-        if "actuators" in mod_hw.keys():
-            self.hmi_addressings = dict((act['uri'], {'addrs': [], 'idx': -1}) for act in mod_hw['actuators'])
-        else:
-            self.hmi_addressings = {}
+        self.hmi_addressings = dict((act['uri'], {'addrs': [], 'idx': -1}) for act in get_hardware_actuators())
 
         self.cc_addressings = {}
         self.cc_metadata = {}
@@ -101,8 +96,7 @@ class Addressings(object):
     # -----------------------------------------------------------------------------------------------------------------
 
     def get_actuators(self):
-        mod_hw = get_hardware()
-        actuators = mod_hw['actuators'] if 'actuators' in mod_hw.keys() else {}
+        actuators = get_hardware_actuators()
 
         for uri, data in self.cc_metadata.items():
             actuators.append({
@@ -205,6 +199,37 @@ class Addressings(object):
 
         with open(os.path.join(bundlepath, "addressings.json"), 'w') as fh:
             json.dump(addressings, fh)
+
+    def registerMappings(self, websocket, instances):
+        # HMI
+        for uri, addrs in self.hmi_addressings.items():
+            for addr in addrs['addrs']:
+                websocket.write_message("hw_map %s %s %s %s %f %f %d" % (instances[addr['instance_id']],
+                                                                         addr['port'],
+                                                                         uri,
+                                                                         addr['label'],
+                                                                         addr['minimum'],
+                                                                         addr['maximum'],
+                                                                         addr['steps']))
+
+        # Control Chain
+        for uri, addrs in self.cc_addressings.items():
+            for addr in addrs:
+                websocket.write_message("hw_map %s %s %s %s %f %f %d" % (instances[addr['instance_id']],
+                                                                         addr['port'],
+                                                                         uri,
+                                                                         addr['label'],
+                                                                         addr['minimum'],
+                                                                         addr['maximum'],
+                                                                         addr['steps']))
+
+        # MIDI
+        for uri, addrs in self.midi_addressings.items():
+            for addr in addrs:
+                websocket.write_message("midi_map %s %s %i %i" % (instances[addr['instance_id']],
+                                                                  addr['port'],
+                                                                  addr['midichannel'],
+                                                                  addr['midicontrol']))
 
     # -----------------------------------------------------------------------------------------------------------------
 

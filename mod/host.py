@@ -811,7 +811,11 @@ class Host(object):
                 title = name.split(":",1)[-1].title().replace(" ","_")
             websocket.write_message("add_hw_port /graph/%s midi 1 %s %i" % (name.split(":",1)[-1], title, i+1))
 
+        instances = {}
+
         for instance_id, plugin in self.plugins.items():
+            instances[instance_id] = plugin['instance']
+
             websocket.write_message("add %s %s %.1f %.1f %d" % (plugin['instance'], plugin['uri'], plugin['x'], plugin['y'], int(plugin['bypassed'])))
 
             if -1 not in plugin['bypassCC']:
@@ -862,6 +866,8 @@ class Host(object):
             if crashed:
                 self.send("connect %s %s" % (self._fix_host_connection_port(port_from),
                                              self._fix_host_connection_port(port_to)))
+
+        self.addressings.registerMappings(websocket, instances)
 
         websocket.write_message("loading_end")
 
@@ -1451,6 +1457,9 @@ class Host(object):
                         port_conns.append((port_from, port_to))
 
         self.addressings.load(bundlepath, instances)
+        # TODO
+        #self.addressings.registerMappings(websocket, instances)
+
         self.msg_callback("loading_end")
 
         if isDefault:

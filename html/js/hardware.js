@@ -61,10 +61,10 @@ function HardwareManager(options) {
         self.addressingsData = {}
 
         // Initializes actuators
-        if (HARDWARE_PROFILE.actuators) {
+        if (HARDWARE_PROFILE) {
             var uri
-            for (var i in HARDWARE_PROFILE.actuators) {
-                uri = HARDWARE_PROFILE.actuators[i].uri
+            for (var i in HARDWARE_PROFILE) {
+                uri = HARDWARE_PROFILE[i].uri
                 self.addressingsByActuator[uri] = []
             }
         }
@@ -111,10 +111,10 @@ function HardwareManager(options) {
 
         var available = {}
 
-        if (HARDWARE_PROFILE.actuators) {
+        if (HARDWARE_PROFILE) {
             var actuator, modes, usedAddressings
-            for (var i in HARDWARE_PROFILE.actuators) {
-                actuator = HARDWARE_PROFILE.actuators[i]
+            for (var i in HARDWARE_PROFILE) {
+                actuator = HARDWARE_PROFILE[i]
                 modes    = actuator.modes
 
                 usedAddressings = self.addressingsByActuator[actuator.uri]
@@ -413,6 +413,69 @@ function HardwareManager(options) {
         form.appendTo($('body'))
     }
 
+    this.addHardwareMapping = function (instance, portSymbol, actuator_uri, label, minimum, maximum, steps) {
+        var instanceAndSymbol = instance+"/"+portSymbol
+
+        self.addressingsByActuator  [actuator_uri].push(instanceAndSymbol)
+        self.addressingsByPortSymbol[instanceAndSymbol] = actuator_uri
+        self.addressingsData        [instanceAndSymbol] = {
+            uri    : actuator_uri,
+            label  : label,
+            minimum: minimum,
+            maximum: maximum,
+            steps  : steps,
+        }
+
+        // disable this control
+        options.setEnabled(instance, portSymbol, false)
+    }
+
+    this.addMidiMapping = function (instance, portSymbol, channel, control, maximum, minimum) {
+        var instanceAndSymbol = instance+"/"+portSymbol
+        var actuator_uri = create_midi_cc_uri(channel, control)
+
+        self.addressingsByActuator  [kMidiLearnURI].push(instanceAndSymbol)
+        self.addressingsByPortSymbol[instanceAndSymbol] = actuator_uri
+        self.addressingsData        [instanceAndSymbol] = {
+            uri    : actuator_uri,
+            label  : null,
+            minimum: minimum,
+            maximum: maximum,
+            steps  : null,
+        }
+
+        // disable this control
+        options.setEnabled(instance, portSymbol, false)
+    }
+
+    // Removes an instance
+    this.removeInstance = function (instance) {
+        var i, j, index, actuator, instanceAndSymbol, instanceAndSymbols = []
+        var instanceSansGraph = instance.replace("/graph/","")
+
+        var keys = Object.keys(self.addressingsByPortSymbol)
+        for (i in keys) {
+            instanceAndSymbol = keys[i]
+            if (instanceAndSymbol.replace("/graph/","").split(/\//)[0] == instanceSansGraph) {
+                if (instanceAndSymbols.indexOf(instanceAndSymbol) < 0) {
+                    instanceAndSymbols.push(instanceAndSymbol)
+                }
+            }
+        }
+
+        for (i in instanceAndSymbols) {
+            instanceAndSymbol = instanceAndSymbols[i]
+            delete self.addressingsByPortSymbol[instanceAndSymbol]
+            delete self.addressingsData        [instanceAndSymbol]
+
+            for (j in HARDWARE_PROFILE) {
+                actuator = HARDWARE_PROFILE[j]
+                remove_from_array(self.addressingsByActuator[actuator.uri], instanceAndSymbol)
+            }
+        }
+    }
+
+    /*
     // Callback from pedalboard.js for when a plugin instance is added
     this.instanceAdded = function (instance) {
         if (HARDWARE_PROFILE.addressings) {
@@ -448,24 +511,6 @@ function HardwareManager(options) {
         }
     }
 
-    this.addMidiMapping = function (instance, portSymbol, channel, control, maximum, minimum) {
-        var instanceAndSymbol = instance+"/"+portSymbol
-        var mappingURI = create_midi_cc_uri(channel, control)
-
-        self.addressingsByActuator  [kMidiLearnURI].push(instanceAndSymbol)
-        self.addressingsByPortSymbol[instanceAndSymbol] = mappingURI
-        self.addressingsData        [instanceAndSymbol] = {
-            uri    : mappingURI,
-            label  : null,
-            minimum: minimum,
-            maximum: maximum,
-            steps  : null,
-        }
-
-        // disable this control
-        options.setEnabled(instance, portSymbol, false)
-    }
-
     this.registerAllAddressings = function () {
         // save current midi maps
         var instanceAndSymbol, mappingURI, midiBackup = {}
@@ -495,31 +540,6 @@ function HardwareManager(options) {
             }
         }
     }
+    */
 
-    // Removes an instance
-    this.removeInstance = function (instance) {
-        var i, j, index, actuator, instanceAndSymbol, instanceAndSymbols = []
-        var instanceSansGraph = instance.replace("/graph/","")
-
-        var keys = Object.keys(self.addressingsByPortSymbol)
-        for (i in keys) {
-            instanceAndSymbol = keys[i]
-            if (instanceAndSymbol.replace("/graph/","").split(/\//)[0] == instanceSansGraph) {
-                if (instanceAndSymbols.indexOf(instanceAndSymbol) < 0) {
-                    instanceAndSymbols.push(instanceAndSymbol)
-                }
-            }
-        }
-
-        for (i in instanceAndSymbols) {
-            instanceAndSymbol = instanceAndSymbols[i]
-            delete self.addressingsByPortSymbol[instanceAndSymbol]
-            delete self.addressingsData        [instanceAndSymbol]
-
-            for (j in HARDWARE_PROFILE.actuators) {
-                actuator = HARDWARE_PROFILE.actuators[j]
-                remove_from_array(self.addressingsByActuator[actuator.uri], instanceAndSymbol)
-            }
-        }
-    }
 }
