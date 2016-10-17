@@ -124,7 +124,7 @@ class Addressings(object):
             for addr in addrs['addrs']:
                 addrs2.append({
                     'instance_id': addr['instance_id'],
-                    'portsymbol' : addr['portsymbol'],
+                    'port'       : addr['port'],
                     'label'      : addr['label'],
                     'minimum'    : addr['minimum'],
                     'maximum'    : addr['maximum'],
@@ -138,7 +138,7 @@ class Addressings(object):
             for addr in addrs:
                 addrs2.append({
                     'instance_id': addr['instance_id'],
-                    'portsymbol' : addr['portsymbol'],
+                    'port'       : addr['port'],
                     'label'      : addr['label'],
                     'minimum'    : addr['minimum'],
                     'maximum'    : addr['maximum'],
@@ -202,7 +202,6 @@ class Addressings(object):
         for uri, addrs in addressings.items():
             for addr in addrs:
                 addr['instance'] = instances[addr.pop('instance_id')]
-                addr['port'    ] = instances[addr.pop('portsymbol')]
 
         with open(os.path.join(bundlepath, "addressings.json"), 'w') as fh:
             json.dump(addressings, fh)
@@ -240,7 +239,7 @@ class Addressings(object):
         addressing_data = {
             'actuator_uri': actuator_uri,
             'instance_id' : instance_id,
-            'portsymbol'  : portsymbol,
+            'port'        : portsymbol,
             'label'       : label,
             'value'       : value,
             'maximum'     : maximum,
@@ -302,7 +301,7 @@ class Addressings(object):
         addressing_data = {
             'actuator_uri': actuator_uri,
             'instance_id' : instance_id,
-            'portsymbol'  : portsymbol,
+            'port'        : portsymbol,
             'maximum'     : maximum,
             'minimum'     : minimum,
             # MIDI specific
@@ -423,7 +422,7 @@ class Addressings(object):
 
         # reload value
         addressing = addressings_addrs[addressings['idx']]
-        addressing['value'] = self._task_get_port_value(addressing['instance_id'], addressing['portsymbol'])
+        addressing['value'] = self._task_get_port_value(addressing['instance_id'], addressing['port'])
 
         # ready to load
         self.hmi_load_current(actuator_uri, callback)
@@ -439,7 +438,7 @@ class Addressings(object):
         for addressing in addressings:
             data = {
                 'instance_id': addressing['instance_id'],
-                'portsymbol' : addressing['portsymbol'],
+                'port'       : addressing['port'],
                 'label'      : addressing['label'],
                 'value'      : addressing['value'],
                 'maximum'    : addressing['maximum'],
@@ -462,7 +461,7 @@ class Addressings(object):
             # NOTE: label, value, steps and options missing, not needed or used for MIDI
             data = {
                 'instance_id': addressing['instance_id'],
-                'portsymbol' : addressing['portsymbol'],
+                'port'       : addressing['port'],
                 'value'      : addressing['value'],
                 'maximum'    : addressing['maximum'],
                 'minimum'    : addressing['minimum'],

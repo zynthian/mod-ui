@@ -303,7 +303,7 @@ class Host(object):
     def addr_task_addressing(self, atype, actuator, data, callback):
         if atype == Addressings.ADDRESSING_TYPE_HMI:
             return self.hmi.control_add(data['instance_id'],
-                                        data['portsymbol'],
+                                        data['port'],
                                         data['label'],
                                         data['hmitype'],
                                         data['hmiunit'],
@@ -318,9 +318,9 @@ class Host(object):
                                         callback)
 
         if atype == Addressings.ADDRESSING_TYPE_CC:
-            print("cc_map %d %s %d %d" % (data['instance_id'], data['portsymbol'], actuator[0], actuator[1]))
+            print("cc_map %d %s %d %d" % (data['instance_id'], data['port'], actuator[0], actuator[1]))
             return self.send("cc_map %d %s %d %d" % (data['instance_id'],
-                                                     data['portsymbol'],
+                                                     data['port'],
                                                      #data['label'], # TODO
                                                      #data['value'],
                                                      #data['maximum'],
@@ -332,7 +332,7 @@ class Host(object):
 
         if atype == Addressings.ADDRESSING_TYPE_MIDI:
             return self.send("midi_map %d %s %i %i %f %f" % (data['instance_id'],
-                                                             data['portsymbol'],
+                                                             data['port'],
                                                              data['midichannel'],
                                                              data['midicontrol'],
                                                              data['maximum'],
@@ -999,7 +999,7 @@ class Host(object):
             elif actuator_type == Addressings.ADDRESSING_TYPE_CC:
                 yield gen.Task(self.addr_task_unaddressing, actuator_type,
                                                             addressing['instance_id'],
-                                                            addressing['portsymbol'])
+                                                            addressing['port'])
 
         for actuator_uri in used_hmi_actuators:
             yield gen.Task(self.addressings.hmi_load_current, actuator_uri)
@@ -1929,7 +1929,7 @@ _:b%i
             self.addressings.remove(old_addressing)
             yield gen.Task(self.addr_task_unaddressing, old_actuator_type,
                                                         old_addressing['instance_id'],
-                                                        old_addressing['portsymbol'])
+                                                        old_addressing['port'])
 
         if not actuator_uri or actuator_uri == kNullAddressURI:
             print("New addressing is empty, doing nothing")
