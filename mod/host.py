@@ -76,6 +76,23 @@ def get_all_good_pedalboards():
 
     return goodpedals
 
+def get_bad_ports(ports):
+    badports = []
+
+    for port in ports:
+        # skip notOnGUI controls
+        if "notOnGUI" in port['properties']:
+            badports.append(port['symbol'])
+
+        # skip special designated controls
+        elif port['designation'] in ("http://lv2plug.in/ns/lv2core#enabled",
+                                     "http://lv2plug.in/ns/lv2core#freeWheeling",
+                                     "http://lv2plug.in/ns/lv2core#latency",
+                                     "http://lv2plug.in/ns/ext/parameters#sampleRate"):
+            badports.append(port['symbol'])
+
+    return badports
+
 # class to map between numeric ids and string instances
 class InstanceIdMapper(object):
     def __init__(self):
@@ -191,6 +208,7 @@ class Host(object):
         self.addressings._task_unaddressing = self.addr_task_unaddressing
         self.addressings._task_get_plugin_data = self.addr_task_get_plugin_data
         self.addressings._task_get_port_value = self.addr_task_get_port_value
+        self.addressings._task_store_address_data = self.addr_task_store_address_data
 
         # Register HMI protocol callbacks
         Protocol.register_cmd_callback("hw_con", self.hmi_hardware_connected)
@@ -373,6 +391,10 @@ class Host(object):
             return float(plugin['mapPresets'].index(plugin['preset']))
 
         return plugin['ports'][portsymbol]
+
+    def addr_task_store_address_data(self, instance_id, portsymbol, data):
+        plugin = self.plugins[instance_id]
+        plugin['addressings'][portsymbol] = data
 
     # -----------------------------------------------------------------------------------------------------------------
     # Initialization
@@ -816,8 +838,9 @@ class Host(object):
         for instance_id, plugin in self.plugins.items():
             instances[instance_id] = plugin['instance']
 
-            websocket.write_message("add %s %s %.1f %.1f %d" % (plugin['instance'], plugin['uri'], plugin['x'], plugin['y'], int(plugin['bypassed'])))
-
+            websocket.write_message("add %s %s %.1f %.1f %d" % (plugin['instance'],
+                                                                plugin['uri'],
+                                                                plugin['x'], plugin['y'], int(plugin['bypassed'])))
             if -1 not in plugin['bypassCC']:
                 mchnnl, mctrl = plugin['bypassCC']
                 websocket.write_message("midi_map %s :bypass %i %i" % (plugin['instance'], mchnnl, mctrl))
@@ -831,15 +854,12 @@ class Host(object):
                     self.send("bypass %d 1" % (instance_id,))
                 if -1 not in plugin['bypassCC']:
                     mchnnl, mctrl = plugin['bypassCC']
-                    self.send("midi_map %d :bypass %i %i" % (instance_id, mchnnl, mctrl))
+                    self.send("midi_map %d :bypass %i %i 0.0 1.0" % (instance_id, mchnnl, mctrl))
                 if plugin['preset']:
                     self.send("preset_load %d %s" % (instance_id, plugin['preset']))
 
-            badports = plugin['badports']
-
             for symbol, value in plugin['ports'].items():
-                if symbol not in badports:
-                    websocket.write_message("param_set %s %s %f" % (plugin['instance'], symbol, value))
+                websocket.write_message("param_set %s %s %f" % (plugin['instance'], symbol, value))
 
                 if crashed:
                     self.send("param_set %d %s %f" % (instance_id, symbol, value))
@@ -939,21 +959,10 @@ class Host(object):
             bypassed = False
 
             allports = get_plugin_control_inputs_and_monitored_outputs(uri)
-            badports = []
             valports = {}
 
             for port in allports['inputs']:
                 valports[port['symbol']] = port['ranges']['default']
-
-                # skip notOnGUI controls
-                if "notOnGUI" in port['properties']:
-                    badports.append(port['symbol'])
-
-                # skip special designated controls
-                elif port['designation'] in ("http://lv2plug.in/ns/lv2core#freeWheeling",
-                                             "http://lv2plug.in/ns/lv2core#latency",
-                                             "http://lv2plug.in/ns/ext/parameters#sampleRate"):
-                    badports.append(port['symbol'])
 
             self.plugins[instance_id] = {
                 "instance"   : instance,
@@ -963,9 +972,9 @@ class Host(object):
                 "x"          : x,
                 "y"          : y,
                 "addressings": {}, # symbol: addressing
-                "midiCCs"    : dict((p['symbol'], (-1,-1)) for p in allports['inputs']),
+                "midiCCs"    : dict((p['symbol'], (-1,-1,0.0,1.0)) for p in allports['inputs']),
                 "ports"      : valports,
-                "badports"   : badports,
+                "badports"   : get_bad_ports(allports['inputs']),
                 "outputs"    : dict((symbol, None) for symbol in allports['monitoredOutputs']),
                 "preset"     : "",
                 "mapPresets" : []
@@ -1349,21 +1358,10 @@ class Host(object):
             instances[instance] = (instance_id, p['uri'])
 
             allports = get_plugin_control_inputs_and_monitored_outputs(p['uri'])
-            badports = []
             valports = {}
 
             for port in allports['inputs']:
                 valports[port['symbol']] = port['ranges']['default']
-
-                # skip notOnGUI controls
-                if "notOnGUI" in port['properties']:
-                    badports.append(port['symbol'])
-
-                # skip special designated controls
-                elif port['designation'] in ("http://lv2plug.in/ns/lv2core#freeWheeling",
-                                             "http://lv2plug.in/ns/lv2core#latency",
-                                             "http://lv2plug.in/ns/ext/parameters#sampleRate"):
-                    badports.append(port['symbol'])
 
             self.plugins[instance_id] = {
                 "instance"   : instance,
@@ -1372,10 +1370,10 @@ class Host(object):
                 "bypassCC"   : (p['bypassCC']['channel'], p['bypassCC']['control']),
                 "x"          : p['x'],
                 "y"          : p['y'],
-                "addressings": {}, # filled in later in self.addressings.load()
-                "midiCCs"    : dict((p['symbol'], (-1,-1)) for p in allports['inputs']),
+                "addressings": {}, # symbol: addressing
+                "midiCCs"    : dict((p['symbol'], (-1,-1,0.0,1.0)) for p in allports['inputs']),
                 "ports"      : valports,
-                "badports"   : badports,
+                "badports"   : get_bad_ports(allports['inputs']),
                 "outputs"    : dict((symbol, None) for symbol in allports['monitoredOutputs']),
                 "preset"     : p['preset'],
                 "mapPresets" : []
@@ -1457,7 +1455,6 @@ class Host(object):
                         port_conns.append((port_from, port_to))
 
         self.addressings.load(bundlepath, instances)
-        # TODO
         #self.addressings.registerMappings(websocket, instances)
 
         self.msg_callback("loading_end")

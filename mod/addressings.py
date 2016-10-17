@@ -44,6 +44,7 @@ class Addressings(object):
         self._task_unaddressing = None
         self._task_get_plugin_data = None
         self._task_get_port_value = None
+        self._task_store_address_data = None
 
         # TODO: remove this
         if os.getenv("CONTROL_CHAIN_TEST"):
@@ -142,12 +143,6 @@ class Addressings(object):
 
         return addressings
 
-    def get_status(self):
-        return {
-            'actuators': self.get_actuators(),
-            'addressings': self.get_addressings()
-        }
-
     # -----------------------------------------------------------------------------------------------------------------
 
     @gen.coroutine
@@ -170,11 +165,14 @@ class Addressings(object):
                 portsymbol = addr['port']
                 curvalue   = self._task_get_port_value(instance_id, portsymbol)
 
-                self.add(instance_id, plugin_uri, portsymbol, actuator_uri,
-                         addr['label'], addr['maximum'], addr['minimum'], addr['steps'], curvalue)
+                addrdata = self.add(instance_id, plugin_uri, portsymbol, actuator_uri,
+                                    addr['label'], addr['maximum'], addr['minimum'], addr['steps'], curvalue)
 
-                if actuator_uri not in used_actuators:
-                    used_actuators.append(actuator_uri)
+                if addrdata is not None:
+                    self._task_store_address_data(instance_id, portsymbol, addrdata)
+
+                    if actuator_uri not in used_actuators:
+                        used_actuators.append(actuator_uri)
 
         for actuator_uri in used_actuators:
             actuator_type = self.get_actuator_type(actuator_uri)
@@ -185,20 +183,58 @@ class Addressings(object):
             elif actuator_type == self.ADDRESSING_TYPE_CC:
                 yield gen.Task(self.cc_load_all, actuator_uri)
 
-            elif actuator_type == self.ADDRESSING_TYPE_MIDI:
-                yield gen.Task(self.midi_load_all, actuator_uri)
+            #elif actuator_type == self.ADDRESSING_TYPE_MIDI:
+                #yield gen.Task(self.midi_load_all, actuator_uri)
 
     def save(self, bundlepath, instances):
-        addressings = self.get_addressings()
+        addressings = {}
 
-        # TODO: verify compatibility with old manual save format
+        # HMI
+        for uri, addrs in self.hmi_addressings.items():
+            addrs2 = []
+            for addr in addrs['addrs']:
+                addrs2.append({
+                    'instance': instances[addr['instance_id']],
+                    'port'    : addr['port'],
+                    'label'   : addr['label'],
+                    'minimum' : addr['minimum'],
+                    'maximum' : addr['maximum'],
+                    'steps'   : addr['steps'],
+                })
+            addressings[uri] = addrs2
 
-        for uri, addrs in addressings.items():
+        # Control Chain
+        for uri, addrs in self.cc_addressings.items():
+            addrs2 = []
             for addr in addrs:
-                addr['instance'] = instances[addr.pop('instance_id')]
+                addrs2.append({
+                    'instance': instances[addr['instance_id']],
+                    'port'    : addr['port'],
+                    'label'   : addr['label'],
+                    'minimum' : addr['minimum'],
+                    'maximum' : addr['maximum'],
+                    'steps'   : addr['steps'],
+                })
+            addressings[uri] = addrs2
 
+        # MIDI (returned, not written)
+        midi_addressings = {}
+        for uri, addrs in self.midi_addressings.items():
+            for addr in addrs:
+                portKey = (addr['instance_id'], addr['port'])
+                midi_addressings[portKey] = {
+                    'channel': addr['midichannel'],
+                    'control': addr['midicontrol'],
+                    'maximum': addr['maximum'],
+                    'minimum': addr['minimum'],
+                }
+
+        # Write addressings to disk
         with open(os.path.join(bundlepath, "addressings.json"), 'w') as fh:
             json.dump(addressings, fh)
+
+        # return midi addressings
+        return midi_addressings
 
     def registerMappings(self, websocket, instances):
         # HMI
