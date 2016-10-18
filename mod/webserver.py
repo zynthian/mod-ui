@@ -558,12 +558,12 @@ class EffectParameterAddress(JsonRequestHandler):
             raise web.HTTPError(404)
 
         label   = data.get('label', '---') or '---'
-        minimum = float(data['minimum'])
         maximum = float(data['maximum'])
+        minimum = float(data['minimum'])
         value   = float(data['value'])
         steps   = int(data.get('steps', 33))
 
-        ok = yield gen.Task(SESSION.web_parameter_address, port, uri, label, maximum, minimum, value, steps)
+        ok = yield gen.Task(SESSION.web_parameter_address, port, uri, label, minimum, maximum, value, steps)
         self.write(ok)
 
 class EffectPresetLoad(JsonRequestHandler):

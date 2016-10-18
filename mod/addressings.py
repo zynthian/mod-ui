@@ -262,12 +262,12 @@ class Addressings(object):
         # MIDI
         for uri, addrs in self.midi_addressings.items():
             for addr in addrs:
-                msg_callback("midi_map %s %s %i %i" % (instances[addr['instance_id']],
-                                                       addr['port'],
-                                                       addr['midichannel'],
-                                                       addr['midicontrol'],
-                                                       addr['minimum'],
-                                                       addr['maximum']))
+                msg_callback("midi_map %s %s %i %i %f %f" % (instances[addr['instance_id']],
+                                                             addr['port'],
+                                                             addr['midichannel'],
+                                                             addr['midicontrol'],
+                                                             addr['minimum'],
+                                                             addr['maximum']))
 
     # -----------------------------------------------------------------------------------------------------------------
 
