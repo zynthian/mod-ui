@@ -181,10 +181,11 @@ class Addressings(object):
                 yield gen.Task(self.hmi_load_first, actuator_uri)
 
             elif actuator_type == self.ADDRESSING_TYPE_CC:
-                yield gen.Task(self.cc_load_all, actuator_uri)
+                self.cc_load_all(actuator_uri)
 
-            #elif actuator_type == self.ADDRESSING_TYPE_MIDI:
-                #yield gen.Task(self.midi_load_all, actuator_uri)
+        # NOTE: MIDI addressings are not stored in addressings.json.
+        #       They must be loaded by calling 'add_midi' before calling this function.
+        self.midi_load_everything()
 
     def save(self, bundlepath, instances):
         addressings = {}
@@ -217,24 +218,9 @@ class Addressings(object):
                 })
             addressings[uri] = addrs2
 
-        # MIDI (returned, not written)
-        midi_addressings = {}
-        for uri, addrs in self.midi_addressings.items():
-            for addr in addrs:
-                portKey = (addr['instance_id'], addr['port'])
-                midi_addressings[portKey] = {
-                    'channel': addr['midichannel'],
-                    'control': addr['midicontrol'],
-                    'minimum': addr['minimum'],
-                    'maximum': addr['maximum'],
-                }
-
         # Write addressings to disk
         with open(os.path.join(bundlepath, "addressings.json"), 'w') as fh:
             json.dump(addressings, fh)
-
-        # return midi addressings
-        return midi_addressings
 
     def registerMappings(self, msg_callback, instances):
         # HMI
@@ -494,7 +480,7 @@ class Addressings(object):
     # Control Chain specific functions
 
     @gen.coroutine
-    def cc_load_all(self, actuator_uri, callback):
+    def cc_load_all(self, actuator_uri):
         actuator_cc = self.cc_metadata[actuator_uri]['hw_id']
         addressings = self.cc_addressings[actuator_uri]
 
@@ -511,30 +497,24 @@ class Addressings(object):
             }
             yield gen.Task(self._task_addressing, self.ADDRESSING_TYPE_CC, actuator_cc, data)
 
-        callback(True)
-
     # -----------------------------------------------------------------------------------------------------------------
     # MIDI specific functions
 
     @gen.coroutine
-    def midi_load_all(self, actuator_uri, callback):
-        addressings = self.midi_addressings[actuator_uri]
-
-        for addressing in addressings:
-            # NOTE: label, value, steps and options missing, not needed or used for MIDI
-            data = {
-                'instance_id': addressing['instance_id'],
-                'port'       : addressing['port'],
-                'value'      : addressing['value'],
-                'minimum'    : addressing['minimum'],
-                'maximum'    : addressing['maximum'],
-                # MIDI specific
-                'midichannel': addressing['midichannel'],
-                'midicontrol': addressing['midicontrol'],
-            }
-            yield gen.Task(self._task_addressing, self.ADDRESSING_TYPE_MIDI, actuator_uri, data)
-
-        callback(True)
+    def midi_load_everything(self):
+        for actuator_uri, addressings in self.midi_addressings.items():
+            for addressing in addressings:
+                # NOTE: label, value, steps and options missing, not needed or used for MIDI
+                data = {
+                    'instance_id': addressing['instance_id'],
+                    'port'       : addressing['port'],
+                    'minimum'    : addressing['minimum'],
+                    'maximum'    : addressing['maximum'],
+                    # MIDI specific
+                    'midichannel': addressing['midichannel'],
+                    'midicontrol': addressing['midicontrol'],
+                }
+                yield gen.Task(self._task_addressing, self.ADDRESSING_TYPE_MIDI, actuator_uri, data)
 
     # -----------------------------------------------------------------------------------------------------------------
     # Utilities

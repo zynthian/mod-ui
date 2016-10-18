@@ -1373,10 +1373,9 @@ class Host(object):
             self.msg_callback("add %s %s %.1f %.1f %d" % (instance, p['uri'], p['x'], p['y'], int(p['bypassed'])))
 
             if p['bypassCC']['channel'] >= 0 and p['bypassCC']['control'] >= 0:
-                self.send("midi_map %d :bypass %i %i 0.0 1.0" % (instance_id, p['bypassCC']['channel'],
-                                                                              p['bypassCC']['control']))
-                self.msg_callback("midi_map %s :bypass %i %i 0.0 1.0" % (instance, p['bypassCC']['channel'],
-                                                                                   p['bypassCC']['control']))
+                self.addressings.add_midi(instance_id, ":bypass", p['bypassCC']['channel'],
+                                                                  p['bypassCC']['control'],
+                                                                  0.0, 1.0)
 
             if p['preset']:
                 self.send("preset_load %d %s" % (instance_id, p['preset']))
@@ -1400,8 +1399,7 @@ class Host(object):
 
                 if mchnnl >= 0 and mctrl >= 0:
                     self.plugins[instance_id]['midiCCs'][symbol] = (mchnnl, mctrl, minimum, maximum)
-                    self.send("midi_map %d %s %i %i %f %f" % (instance_id, symbol, mchnnl, mctrl, minimum, maximum))
-                    self.msg_callback("midi_map %s %s %i %i %f %f" % (instance, symbol, mchnnl, mctrl, minimum, maximum))
+                    self.addressings.add_midi(instance_id, symbol, mchnnl, mctrl, minimum, maximum)
 
             for output in allports['monitoredOutputs']:
                 self.send("monitor_output %d %s" % (instance_id, output))
