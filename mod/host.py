@@ -76,23 +76,6 @@ def get_all_good_pedalboards():
 
     return goodpedals
 
-def get_bad_ports(ports):
-    badports = []
-
-    for port in ports:
-        # skip notOnGUI controls
-        if "notOnGUI" in port['properties']:
-            badports.append(port['symbol'])
-
-        # skip special designated controls
-        elif port['designation'] in ("http://lv2plug.in/ns/lv2core#enabled",
-                                     "http://lv2plug.in/ns/lv2core#freeWheeling",
-                                     "http://lv2plug.in/ns/lv2core#latency",
-                                     "http://lv2plug.in/ns/ext/parameters#sampleRate"):
-            badports.append(port['symbol'])
-
-    return badports
-
 # class to map between numeric ids and string instances
 class InstanceIdMapper(object):
     def __init__(self):
@@ -873,12 +856,11 @@ class Host(object):
                     self.send("monitor_output %d %s" % (instance_id, symbol))
 
             for symbol, data in plugin['midiCCs'].items():
-                if -1 not in data and symbol not in badports:
-                    mchnnl, mctrl = data
-                    websocket.write_message("midi_map %s %s %i %i" % (plugin['instance'], symbol, mchnnl, mctrl))
+                mchnnl, mctrl = data
+                websocket.write_message("midi_map %s %s %i %i" % (plugin['instance'], symbol, mchnnl, mctrl))
 
-                    if crashed:
-                        self.send("midi_map %d %s %i %i" % (instance_id, symbol, mchnnl, mctrl))
+                if crashed:
+                    self.send("midi_map %d %s %i %i" % (instance_id, symbol, mchnnl, mctrl))
 
         for port_from, port_to in self.connections:
             websocket.write_message("connect %s %s" % (port_from, port_to))
@@ -974,7 +956,6 @@ class Host(object):
                 "addressings": {}, # symbol: addressing
                 "midiCCs"    : dict((p['symbol'], (-1,-1,0.0,1.0)) for p in allports['inputs']),
                 "ports"      : valports,
-                "badports"   : get_bad_ports(allports['inputs']),
                 "outputs"    : dict((symbol, None) for symbol in allports['monitoredOutputs']),
                 "preset"     : "",
                 "mapPresets" : []
@@ -1052,9 +1033,7 @@ class Host(object):
         instance, symbol = port.rsplit("/", 1)
         instance_id = self.mapper.get_id_without_creating(instance)
 
-        if symbol not in self.plugins[instance_id]['badports']:
-            self.plugins[instance_id]['ports'][symbol] = value
-
+        self.plugins[instance_id]['ports'][symbol] = value
         self.send("param_set %d %s %f" % (instance_id, symbol, value), callback, datatype='boolean')
 
     def preset_load(self, instance, uri, callback):
@@ -1072,12 +1051,10 @@ class Host(object):
             portValues = get_state_port_values(state)
             self.plugins[instance_id]['ports'].update(portValues)
 
-            badports = self.plugins[instance_id]['badports']
             used_actuators = []
 
             for symbol, value in self.plugins[instance_id]['ports'].items():
-                if symbol not in badports:
-                    self.msg_callback("param_set %s %s %f" % (instance, symbol, value))
+                self.msg_callback("param_set %s %s %f" % (instance, symbol, value))
 
                 addressing = self.plugins[instance_id]['addressings'].get(symbol, None)
                 if addressing is not None and addressing['actuator_uri'] not in used_actuators:
@@ -1373,7 +1350,6 @@ class Host(object):
                 "addressings": {}, # symbol: addressing
                 "midiCCs"    : dict((p['symbol'], (-1,-1,0.0,1.0)) for p in allports['inputs']),
                 "ports"      : valports,
-                "badports"   : get_bad_ports(allports['inputs']),
                 "outputs"    : dict((symbol, None) for symbol in allports['monitoredOutputs']),
                 "preset"     : p['preset'],
                 "mapPresets" : []
@@ -1406,13 +1382,11 @@ class Host(object):
                 self.plugins[instance_id]['midiCCs'][symbol] = (mchnnl, mctrl)
 
                 self.send("param_set %d %s %f" % (instance_id, symbol, value))
+                self.msg_callback("param_set %s %s %f" % (instance, symbol, value))
 
-                if symbol not in badports:
-                    self.msg_callback("param_set %s %s %f" % (instance, symbol, value))
-
-                    if mchnnl >= 0 and mctrl >= 0:
-                        self.send("midi_map %d %s %i %i" % (instance_id, symbol, mchnnl, mctrl))
-                        self.msg_callback("midi_map %s %s %i %i" % (instance, symbol, mchnnl, mctrl))
+                if mchnnl >= 0 and mctrl >= 0:
+                    self.send("midi_map %d %s %i %i" % (instance_id, symbol, mchnnl, mctrl))
+                    self.msg_callback("midi_map %s %s %i %i" % (instance, symbol, mchnnl, mctrl))
 
             for output in allports['monitoredOutputs']:
                 self.send("monitor_output %d %s" % (instance_id, output))
@@ -2138,10 +2112,6 @@ _:b%i
                 return
             self.preset_load(instance, plugin['mapPresets'][value], callback)
 
-        # For "bad" ports only report value to mod-host, don't store it
-        elif portsymbol in plugin['badports']:
-            self.send("param_set %d %s %f" % (instance_id, portsymbol, value), callback, datatype='boolean')
-
         else:
             plugin['ports'][portsymbol] = value
 
@@ -2199,9 +2169,7 @@ _:b%i
 
                 pluginData['ports'][symbol] = value
                 self.send("param_set %d %s %f" % (instance_id, symbol, value))
-
-                if symbol not in pluginData['badports']:
-                    self.msg_callback("param_set %s %s %f" % (instance, symbol, value))
+                self.msg_callback("param_set %s %s %f" % (instance, symbol, value))
 
                 addressing = pluginData['addressings'].get(symbol, None)
                 if addressing is not None and addressing['actuator_uri'] not in used_actuators:
