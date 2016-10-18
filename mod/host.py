@@ -309,8 +309,8 @@ class Host(object):
                                         data['hmitype'],
                                         data['hmiunit'],
                                         data['value'],
-                                        data['maximum'],
                                         data['minimum'],
+                                        data['maximum'],
                                         data['steps'],
                                         actuator[0], actuator[1], actuator[2], actuator[3],
                                         data['addrs_max'], # num controllers
@@ -324,8 +324,8 @@ class Host(object):
                                                      data['port'],
                                                      #data['label'], # TODO
                                                      #data['value'],
-                                                     #data['maximum'],
                                                      #data['minimum'],
+                                                     #data['maximum'],
                                                      #data['steps'],
                                                      actuator[0], actuator[1],
                                                      #data['options'],
@@ -336,8 +336,8 @@ class Host(object):
                                                              data['port'],
                                                              data['midichannel'],
                                                              data['midicontrol'],
-                                                             data['maximum'],
                                                              data['minimum'],
+                                                             data['maximum'],
                                                             ), callback, datatype='boolean')
 
         print("ERROR: Invalid addressing requested for", actuator)
@@ -630,22 +630,22 @@ class Host(object):
                 channel     = int(msg[3])
                 controller  = int(msg[4])
                 value       = float(msg[5])
-                maximum     = float(msg[6])
-                minimum     = float(msg[7])
+                minimum     = float(msg[6])
+                maximum     = float(msg[7])
 
                 if portsymbol == ":bypass":
-                    #self.plugins[instance_id]['bypassCC'] = (channel, controller)
+                    self.plugins[instance_id]['bypassCC'] = (channel, controller, 0.0, 1.0)
                     self.plugins[instance_id]['bypassed'] = bool(value)
                 else:
-                    #self.plugins[instance_id]['midiCCs'][portsymbol] = (channel, controller)
+                    self.plugins[instance_id]['midiCCs'][portsymbol] = (channel, controller, minimum, maximum)
                     self.plugins[instance_id]['ports'][portsymbol] = value
 
-                self.addressings.add_midi(instance_id, portsymbol, channel, controller, maximum, minimum)
+                self.addressings.add_midi(instance_id, portsymbol, channel, controller, minimum, maximum)
 
                 instance = self.mapper.get_instance(instance_id)
                 self.msg_callback("midi_map %s %s %i %i %f %f" % (instance, portsymbol,
                                                                   channel, controller,
-                                                                  maximum, minimum))
+                                                                  minimum, maximum))
                 self.msg_callback("param_set %s %s %f" % (instance, portsymbol, value))
 
             elif cmd == "midi_program":
@@ -826,7 +826,7 @@ class Host(object):
                                                                 plugin['x'], plugin['y'], int(plugin['bypassed'])))
             if -1 not in plugin['bypassCC']:
                 mchnnl, mctrl = plugin['bypassCC']
-                websocket.write_message("midi_map %s :bypass %i %i" % (plugin['instance'], mchnnl, mctrl))
+                websocket.write_message("midi_map %s :bypass %i %i 0.0 1.0" % (plugin['instance'], mchnnl, mctrl))
 
             if plugin['preset']:
                 websocket.write_message("preset %s %s" % (plugin['instance'], plugin['preset']))
@@ -856,11 +856,15 @@ class Host(object):
                     self.send("monitor_output %d %s" % (instance_id, symbol))
 
             for symbol, data in plugin['midiCCs'].items():
-                mchnnl, mctrl = data
-                websocket.write_message("midi_map %s %s %i %i" % (plugin['instance'], symbol, mchnnl, mctrl))
+                mchnnl, mctrl, minimum, maximum = data
+                if -1 in (mchnnl, mctrl):
+                    continue
+
+                websocket.write_message("midi_map %s %s %i %i %f %f" % (plugin['instance'], symbol,
+                                                                        mchnnl, mctrl, minimum, maximum))
 
                 if crashed:
-                    self.send("midi_map %d %s %i %i" % (instance_id, symbol, mchnnl, mctrl))
+                    self.send("midi_map %d %s %i %i %f %f" % (instance_id, symbol, mchnnl, mctrl, minimum, maximum))
 
         for port_from, port_to in self.connections:
             websocket.write_message("connect %s %s" % (port_from, port_to))
@@ -1363,10 +1367,10 @@ class Host(object):
             self.msg_callback("add %s %s %.1f %.1f %d" % (instance, p['uri'], p['x'], p['y'], int(p['bypassed'])))
 
             if p['bypassCC']['channel'] >= 0 and p['bypassCC']['control'] >= 0:
-                self.send("midi_map %d :bypass %i %i" % (instance_id, p['bypassCC']['channel'],
-                                                                      p['bypassCC']['control']))
-                self.msg_callback("midi_map %s :bypass %i %i" % (instance, p['bypassCC']['channel'],
-                                                                           p['bypassCC']['control']))
+                self.send("midi_map %d :bypass %i %i 0.0 1.0" % (instance_id, p['bypassCC']['channel'],
+                                                                              p['bypassCC']['control']))
+                self.msg_callback("midi_map %s :bypass %i %i 0.0 1.0" % (instance, p['bypassCC']['channel'],
+                                                                                   p['bypassCC']['control']))
 
             if p['preset']:
                 self.send("preset_load %d %s" % (instance_id, p['preset']))
@@ -1378,6 +1382,14 @@ class Host(object):
                 mchnnl = port['midiCC']['channel']
                 mctrl  = port['midiCC']['control']
 
+                if port['midiCC']['hasRanges']:
+                    minimum = port['midiCC']['minimum']
+                    maximum = port['midiCC']['maximum']
+                else:
+                    # FIXME
+                    minimum = port['ranges']['minimum']
+                    maximum = port['ranges']['maximum']
+
                 self.plugins[instance_id]['ports'][symbol] = value
                 self.plugins[instance_id]['midiCCs'][symbol] = (mchnnl, mctrl)
 
@@ -1385,8 +1397,8 @@ class Host(object):
                 self.msg_callback("param_set %s %s %f" % (instance, symbol, value))
 
                 if mchnnl >= 0 and mctrl >= 0:
-                    self.send("midi_map %d %s %i %i" % (instance_id, symbol, mchnnl, mctrl))
-                    self.msg_callback("midi_map %s %s %i %i" % (instance, symbol, mchnnl, mctrl))
+                    self.send("midi_map %d %s %i %i %f %f" % (instance_id, symbol, mchnnl, mctrl, minimum, maximum))
+                    self.msg_callback("midi_map %s %s %i %i %f %f" % (instance, symbol, mchnnl, mctrl, minimum, maximum))
 
             for output in allports['monitoredOutputs']:
                 self.send("monitor_output %d %s" % (instance_id, output))
@@ -1887,7 +1899,7 @@ _:b%i
     # Addressing (public stuff)
 
     @gen.coroutine
-    def address(self, instance, portsymbol, actuator_uri, label, maximum, minimum, value, steps, callback):
+    def address(self, instance, portsymbol, actuator_uri, label, minimum, maximum, value, steps, callback):
         instance_id = self.mapper.get_id(instance)
         pluginData  = self.plugins.get(instance_id, None)
         if pluginData is None:
@@ -1928,11 +1940,11 @@ _:b%i
             print("Starting MIDI learn")
             return self.send("midi_learn %d %s %f %f" % (instance_id,
                                                          portsymbol,
-                                                         maximum,
-                                                         minimum), callback, datatype='boolean')
+                                                         minimum,
+                                                         maximum), callback, datatype='boolean')
 
         addressing = self.addressings.add(instance_id, pluginData['uri'], portsymbol, actuator_uri,
-                                          label, maximum, minimum, steps, value)
+                                          label, minimum, maximum, steps, value)
         pluginData['addressings'][portsymbol] = addressing
         print("addressed as", addressing)
 

@@ -166,7 +166,7 @@ class Addressings(object):
                 curvalue   = self._task_get_port_value(instance_id, portsymbol)
 
                 addrdata = self.add(instance_id, plugin_uri, portsymbol, actuator_uri,
-                                    addr['label'], addr['maximum'], addr['minimum'], addr['steps'], curvalue)
+                                    addr['label'], addr['minimum'], addr['maximum'], addr['steps'], curvalue)
 
                 if addrdata is not None:
                     self._task_store_address_data(instance_id, portsymbol, addrdata)
@@ -225,8 +225,8 @@ class Addressings(object):
                 midi_addressings[portKey] = {
                     'channel': addr['midichannel'],
                     'control': addr['midicontrol'],
-                    'maximum': addr['maximum'],
                     'minimum': addr['minimum'],
+                    'maximum': addr['maximum'],
                 }
 
         # Write addressings to disk
@@ -265,11 +265,13 @@ class Addressings(object):
                 websocket.write_message("midi_map %s %s %i %i" % (instances[addr['instance_id']],
                                                                   addr['port'],
                                                                   addr['midichannel'],
-                                                                  addr['midicontrol']))
+                                                                  addr['midicontrol'],
+                                                                  addr['minimum'],
+                                                                  addr['maximum']))
 
     # -----------------------------------------------------------------------------------------------------------------
 
-    def add(self, instance_id, plugin_uri, portsymbol, actuator_uri, label, maximum, minimum, steps, value):
+    def add(self, instance_id, plugin_uri, portsymbol, actuator_uri, label, minimum, maximum, steps, value):
         actuator_type = self.get_actuator_type(actuator_uri)
 
         if actuator_type not in (self.ADDRESSING_TYPE_HMI, self.ADDRESSING_TYPE_CC):
@@ -303,8 +305,8 @@ class Addressings(object):
             'port'        : portsymbol,
             'label'       : label,
             'value'       : value,
-            'maximum'     : maximum,
             'minimum'     : minimum,
+            'maximum'     : maximum,
             'steps'       : steps,
             'options'     : options,
         }
@@ -355,7 +357,7 @@ class Addressings(object):
 
         return addressing_data
 
-    def add_midi(self, instance_id, portsymbol, midichannel, midicontrol, maximum, minimum):
+    def add_midi(self, instance_id, portsymbol, midichannel, midicontrol, minimum, maximum):
         actuator_uri = self.create_midi_cc_uri(midichannel, midicontrol)
 
         # NOTE: label, value, steps and options missing, not needed or used for MIDI
@@ -363,8 +365,8 @@ class Addressings(object):
             'actuator_uri': actuator_uri,
             'instance_id' : instance_id,
             'port'        : portsymbol,
-            'maximum'     : maximum,
             'minimum'     : minimum,
+            'maximum'     : maximum,
             # MIDI specific
             'midichannel' : midichannel,
             'midicontrol' : midicontrol,
@@ -502,8 +504,8 @@ class Addressings(object):
                 'port'       : addressing['port'],
                 'label'      : addressing['label'],
                 'value'      : addressing['value'],
-                'maximum'    : addressing['maximum'],
                 'minimum'    : addressing['minimum'],
+                'maximum'    : addressing['maximum'],
                 'steps'      : addressing['steps'],
                 'options'    : addressing['options'],
             }
@@ -524,8 +526,8 @@ class Addressings(object):
                 'instance_id': addressing['instance_id'],
                 'port'       : addressing['port'],
                 'value'      : addressing['value'],
-                'maximum'    : addressing['maximum'],
                 'minimum'    : addressing['minimum'],
+                'maximum'    : addressing['maximum'],
                 # MIDI specific
                 'midichannel': addressing['midichannel'],
                 'midicontrol': addressing['midicontrol'],
