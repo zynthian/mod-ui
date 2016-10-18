@@ -236,38 +236,38 @@ class Addressings(object):
         # return midi addressings
         return midi_addressings
 
-    def registerMappings(self, websocket, instances):
+    def registerMappings(self, msg_callback, instances):
         # HMI
         for uri, addrs in self.hmi_addressings.items():
             for addr in addrs['addrs']:
-                websocket.write_message("hw_map %s %s %s %s %f %f %d" % (instances[addr['instance_id']],
-                                                                         addr['port'],
-                                                                         uri,
-                                                                         addr['label'],
-                                                                         addr['minimum'],
-                                                                         addr['maximum'],
-                                                                         addr['steps']))
+                msg_callback("hw_map %s %s %s %s %f %f %d" % (instances[addr['instance_id']],
+                                                              addr['port'],
+                                                              uri,
+                                                              addr['label'],
+                                                              addr['minimum'],
+                                                              addr['maximum'],
+                                                              addr['steps']))
 
         # Control Chain
         for uri, addrs in self.cc_addressings.items():
             for addr in addrs:
-                websocket.write_message("hw_map %s %s %s %s %f %f %d" % (instances[addr['instance_id']],
-                                                                         addr['port'],
-                                                                         uri,
-                                                                         addr['label'],
-                                                                         addr['minimum'],
-                                                                         addr['maximum'],
-                                                                         addr['steps']))
+                msg_callback("hw_map %s %s %s %s %f %f %d" % (instances[addr['instance_id']],
+                                                              addr['port'],
+                                                              uri,
+                                                              addr['label'],
+                                                              addr['minimum'],
+                                                              addr['maximum'],
+                                                              addr['steps']))
 
         # MIDI
         for uri, addrs in self.midi_addressings.items():
             for addr in addrs:
-                websocket.write_message("midi_map %s %s %i %i" % (instances[addr['instance_id']],
-                                                                  addr['port'],
-                                                                  addr['midichannel'],
-                                                                  addr['midicontrol'],
-                                                                  addr['minimum'],
-                                                                  addr['maximum']))
+                msg_callback("midi_map %s %s %i %i" % (instances[addr['instance_id']],
+                                                       addr['port'],
+                                                       addr['midichannel'],
+                                                       addr['midicontrol'],
+                                                       addr['minimum'],
+                                                       addr['maximum']))
 
     # -----------------------------------------------------------------------------------------------------------------
 

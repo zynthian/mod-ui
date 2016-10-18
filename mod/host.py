@@ -873,7 +873,7 @@ class Host(object):
                 self.send("connect %s %s" % (self._fix_host_connection_port(port_from),
                                              self._fix_host_connection_port(port_to)))
 
-        self.addressings.registerMappings(websocket, instances)
+        self.addressings.registerMappings(lambda msg: websocket.write_message(msg), instances)
 
         websocket.write_message("loading_end")
 
@@ -1263,8 +1263,10 @@ class Host(object):
         mappedOldMidiIns   = dict((p['symbol'], p['name']) for p in pb['hardware']['midi_ins'])
         mappedOldMidiOuts  = dict((p['symbol'], p['name']) for p in pb['hardware']['midi_outs'])
         mappedOldMidiOuts2 = dict((p['name'], p['symbol']) for p in pb['hardware']['midi_outs'])
-        mappedNewMidiIns   = OrderedDict((get_jack_port_alias(p).split("-",5)[-1].replace("-"," ").replace(";","."), p.split(":",1)[-1]) for p in get_jack_hardware_ports(False, False))
-        mappedNewMidiOuts  = OrderedDict((get_jack_port_alias(p).split("-",5)[-1].replace("-"," ").replace(";","."), p.split(":",1)[-1]) for p in get_jack_hardware_ports(False, True))
+        mappedNewMidiIns   = OrderedDict((get_jack_port_alias(p).split("-",5)[-1].replace("-"," ").replace(";","."),
+                                          p.split(":",1)[-1]) for p in get_jack_hardware_ports(False, False))
+        mappedNewMidiOuts  = OrderedDict((get_jack_port_alias(p).split("-",5)[-1].replace("-"," ").replace(";","."),
+                                          p.split(":",1)[-1]) for p in get_jack_hardware_ports(False, True))
 
         curmidisymbols = []
         for port_symbol, port_alias, _ in self.midiports:
@@ -1331,12 +1333,14 @@ class Host(object):
             self.msg_callback("add_hw_port /graph/%s midi 1 %s %i" % (symbol, name.replace(" ","_"), index))
 
         instances = {}
+        rinstances = {}
 
         for p in pb['plugins']:
             instance    = "/graph/%s" % p['instance']
             instance_id = self.mapper.get_id(instance)
 
             instances[instance] = (instance_id, p['uri'])
+            rinstances[instance_id] = instance
 
             allports = get_plugin_control_inputs_and_monitored_outputs(p['uri'])
             valports = {}
@@ -1391,12 +1395,11 @@ class Host(object):
                     minimum, maximum = ranges[symbol]
 
                 self.plugins[instance_id]['ports'][symbol] = value
-                self.plugins[instance_id]['midiCCs'][symbol] = (mchnnl, mctrl, minimum, maximum)
-
                 self.send("param_set %d %s %f" % (instance_id, symbol, value))
                 self.msg_callback("param_set %s %s %f" % (instance, symbol, value))
 
                 if mchnnl >= 0 and mctrl >= 0:
+                    self.plugins[instance_id]['midiCCs'][symbol] = (mchnnl, mctrl, minimum, maximum)
                     self.send("midi_map %d %s %i %i %f %f" % (instance_id, symbol, mchnnl, mctrl, minimum, maximum))
                     self.msg_callback("midi_map %s %s %i %i %f %f" % (instance, symbol, mchnnl, mctrl, minimum, maximum))
 
@@ -1441,7 +1444,7 @@ class Host(object):
                         port_conns.append((port_from, port_to))
 
         self.addressings.load(bundlepath, instances)
-        #self.addressings.registerMappings(websocket, instances)
+        self.addressings.registerMappings(self.msg_callback, rinstances)
 
         self.msg_callback("loading_end")
 
