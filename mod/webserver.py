@@ -27,7 +27,7 @@ import tornado.options
 import tornado.escape
 import time
 from base64 import b64decode, b64encode
-from signal import signal, SIGUSR2
+from signal import signal, SIGUSR1, SIGUSR2
 from tornado import gen, iostream, web, websocket
 from tornado.util import unicode_type
 from uuid import uuid4
@@ -1393,9 +1393,18 @@ def signal_upgrade_check():
     SESSION.hmi.send("restore")
 
 def signal_recv(sig, frame=0):
-    if sig == SIGUSR2:
-        func = signal_upgrade_check if os.path.exists("/root/check-upgrade-system") else SESSION.signal_disconnect
-        tornado.ioloop.IOLoop.instance().add_callback_from_signal(func)
+    if sig == SIGUSR1:
+        func = SESSION.signal_save
+    elif sig == SIGUSR2:
+        if os.path.exists("/root/check-upgrade-system") and \
+           os.path.exists("/etc/systemd/system/upgrade-system-check.service"):
+            func = signal_upgrade_check
+        else:
+            func = SESSION.signal_disconnect
+    else:
+        return
+
+    tornado.ioloop.IOLoop.instance().add_callback_from_signal(func)
 
 def prepare(isModApp = False):
     check_environment()
@@ -1419,6 +1428,7 @@ def prepare(isModApp = False):
         print("Done!")
 
     if not isModApp:
+        signal(SIGUSR1, signal_recv)
         signal(SIGUSR2, signal_recv)
         set_process_name("mod-ui")
 

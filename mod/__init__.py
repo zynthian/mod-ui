@@ -55,14 +55,25 @@ def check_environment():
     from mod.settings import (LV2_PEDALBOARDS_DIR,
                               DEFAULT_PEDALBOARD, DEFAULT_PEDALBOARD_COPY,
                               DATA_DIR, DOWNLOAD_TMP_DIR,
-                              BANKS_JSON_FILE, UPDATE_FILE,
+                              BANKS_JSON_FILE, FAVORITES_JSON_FILE, UPDATE_FILE,
                               CAPTURE_PATH, PLAYBACK_PATH)
 
-    if not os.path.exists(DATA_DIR):
-        os.makedirs(DATA_DIR)
-
+    # create temp dirs
     if not os.path.exists(DOWNLOAD_TMP_DIR):
         os.makedirs(DOWNLOAD_TMP_DIR)
+
+    # remove temp files
+    for path in (CAPTURE_PATH, PLAYBACK_PATH):
+        if os.path.exists(path):
+            os.remove(path)
+
+    # check RW access
+    if not os.access(DATA_DIR, os.W_OK):
+        return False
+
+    # create needed dirs and files
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
 
     if not os.path.exists(LV2_PEDALBOARDS_DIR):
         os.makedirs(LV2_PEDALBOARDS_DIR)
@@ -74,10 +85,15 @@ def check_environment():
         with open(BANKS_JSON_FILE, 'w') as fh:
             fh.write("[]")
 
-    # remove temp files
-    for path in (UPDATE_FILE, CAPTURE_PATH, PLAYBACK_PATH):
-        if os.path.exists(path):
-            os.remove(path)
+    if not os.path.exists(FAVORITES_JSON_FILE):
+        with open(FAVORITES_JSON_FILE, 'w') as fh:
+            fh.write("[]")
+
+    # remove previous update file
+    if os.path.exists(UPDATE_FILE):
+        os.remove(UPDATE_FILE)
+
+    return True
 
 def symbolify(name):
     if len(name) == 0:
