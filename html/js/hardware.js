@@ -511,24 +511,6 @@ function HardwareManager(options) {
         }
     }
 
-    this.addMidiMapping = function (instance, portSymbol, channel, control, minimum, maximum) {
-        var instanceAndSymbol = instance+"/"+portSymbol
-        var mappingURI = kMidiCustomPrefixURI + "Ch." + (channel+1).toString() + "_CC#" + control.toString()
-
-        self.addressingsByActuator  [kMidiLearnURI].push(instanceAndSymbol)
-        self.addressingsByPortSymbol[instanceAndSymbol] = mappingURI
-        self.addressingsData        [instanceAndSymbol] = {
-            uri    : mappingURI,
-            label  : null,
-            minimum: minimum,
-            maximum: maximum,
-            steps  : null,
-        }
-
-        // disable this control
-        options.setEnabled(instance, portSymbol, false)
-    }
-
     this.registerAllAddressings = function () {
         // save current midi maps
         var instanceAndSymbol, mappingURI, midiBackup = {}
