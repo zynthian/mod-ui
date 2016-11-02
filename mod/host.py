@@ -634,7 +634,7 @@ class Host(object):
                 maximum     = float(msg[7])
 
                 if portsymbol == ":bypass":
-                    self.plugins[instance_id]['bypassCC'] = (channel, controller, 0.0, 1.0)
+                    self.plugins[instance_id]['bypassCC'] = (channel, controller)
                     self.plugins[instance_id]['bypassed'] = bool(value)
                 else:
                     self.plugins[instance_id]['midiCCs'][portsymbol] = (channel, controller, minimum, maximum)
@@ -821,8 +821,7 @@ class Host(object):
         for instance_id, plugin in self.plugins.items():
             instances[instance_id] = plugin['instance']
 
-            websocket.write_message("add %s %s %.1f %.1f %d" % (plugin['instance'],
-                                                                plugin['uri'],
+            websocket.write_message("add %s %s %.1f %.1f %d" % (plugin['instance'], plugin['uri'],
                                                                 plugin['x'], plugin['y'], int(plugin['bypassed'])))
             if -1 not in plugin['bypassCC']:
                 mchnnl, mctrl = plugin['bypassCC']

@@ -257,13 +257,13 @@ function HardwareManager(options) {
 
             // Hide sensibility options for MIDI
             var act = actuatorSelect.val()
-            if (act == "/midi-learn" || act.lastIndexOf(kMidiCustomPrefixURI, 0) === 0) {
+            if (act == kMidiLearnURI || act.lastIndexOf(kMidiCustomPrefixURI, 0) === 0) {
                 form.find('.sensibility').css({visibility:"hidden"})
             }
 
             actuatorSelect.bind('change keyup', function () {
                 var act = $(this).val()
-                if (act == "/midi-learn" || act.lastIndexOf(kMidiCustomPrefixURI, 0) === 0) {
+                if (act == kMidiLearnURI || act.lastIndexOf(kMidiCustomPrefixURI, 0) === 0) {
                     form.find('.sensibility').css({visibility:"hidden"})
                 } else {
                     form.find('.sensibility').css({visibility:"visible"})
@@ -509,6 +509,24 @@ function HardwareManager(options) {
                 }
             }
         }
+    }
+
+    this.addMidiMapping = function (instance, portSymbol, channel, control, minimum, maximum) {
+        var instanceAndSymbol = instance+"/"+portSymbol
+        var mappingURI = kMidiCustomPrefixURI + "Ch." + (channel+1).toString() + "_CC#" + control.toString()
+
+        self.addressingsByActuator  [kMidiLearnURI].push(instanceAndSymbol)
+        self.addressingsByPortSymbol[instanceAndSymbol] = mappingURI
+        self.addressingsData        [instanceAndSymbol] = {
+            uri    : mappingURI,
+            label  : null,
+            minimum: minimum,
+            maximum: maximum,
+            steps  : null,
+        }
+
+        // disable this control
+        options.setEnabled(instance, portSymbol, false)
     }
 
     this.registerAllAddressings = function () {
