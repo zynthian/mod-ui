@@ -149,9 +149,6 @@ class Host(object):
 
         self.statstimer = ioloop.PeriodicCallback(self.statstimer_callback, 1000)
 
-        for i in range(1001):
-            find_freqnotecents(float(i))
-
         if os.path.exists("/proc/meminfo"):
             self.memfile  = open("/proc/meminfo", 'r')
             self.memtotal = 0.0
@@ -1511,8 +1508,8 @@ class Host(object):
 
     def save_state_to_ttl(self, bundlepath, title, titlesym):
         self.save_state_manifest(bundlepath, titlesym)
-        self.save_state_mainfile(bundlepath, title, titlesym)
         self.save_state_addressings(bundlepath)
+        self.save_state_mainfile(bundlepath, title, titlesym)
 
     def save_state_manifest(self, bundlepath, titlesym):
         # Write manifest.ttl
@@ -1530,6 +1527,14 @@ class Host(object):
         pedal:Pedalboard ;
     rdfs:seeAlso <%s.ttl> .
 """ % (titlesym, titlesym))
+
+    def save_state_addressings(self, bundlepath):
+        instances = {}
+        for instance_id, plugin in self.plugins.items():
+            instance = plugin['instance']
+            instances[instance_id] = instance
+
+        self.addressings.save(bundlepath, instances)
 
     def save_state_mainfile(self, bundlepath, title, titlesym):
         # Create list of midi in/out ports
@@ -1849,14 +1854,6 @@ _:b%i
         # Write the main pedalboard file
         with open(os.path.join(bundlepath, "%s.ttl" % titlesym), 'w') as fh:
             fh.write(pbdata)
-
-    def save_state_addressings(self, bundlepath):
-        instances = {}
-        for instance_id, plugin in self.plugins.items():
-            instance = plugin['instance']
-            instances[instance_id] = instance
-
-        self.addressings.save(bundlepath, instances)
 
     # -----------------------------------------------------------------------------------------------------------------
     # Host stuff - misc

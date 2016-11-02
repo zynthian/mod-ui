@@ -558,8 +558,8 @@ class EffectParameterAddress(JsonRequestHandler):
             raise web.HTTPError(404)
 
         label   = data.get('label', '---') or '---'
-        maximum = float(data['maximum'])
         minimum = float(data['minimum'])
+        maximum = float(data['maximum'])
         value   = float(data['value'])
         steps   = int(data.get('steps', 33))
 
