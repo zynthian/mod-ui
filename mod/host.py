@@ -1775,6 +1775,8 @@ class Host(object):
         websocket.write_message("truebypass %i %i" % (self.last_true_bypass_left, self.last_true_bypass_right))
         websocket.write_message("loading_start %d %d" % (self.pedalboard_empty, self.pedalboard_modified))
         websocket.write_message("size %d %d" % (self.pedalboard_size[0], self.pedalboard_size[1]))
+        if self.pedalboard_path:
+            websocket.write_message("bundlepath %s" % self.pedalboard_path)
 
         for dev_uri, label, labelsuffix, version in self.addressings.cchain.hw_versions.values():
             websocket.write_message("hw_add %s %s %s %s" % (dev_uri,
@@ -3101,6 +3103,7 @@ class Host(object):
                 }
         self.msg_callback("loading_start %i 0" % int(isDefault))
         self.msg_callback("size %d %d" % (pb['width'],pb['height']))
+        self.msg_callback("bundlepath %s" % bundlepath)
 
         midi_aggregated_mode = not pb.get('midi_separated_mode', True)
 
