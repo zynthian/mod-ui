@@ -1238,6 +1238,7 @@ class Host(object):
 
         self.msg_callback("loading_start %i 0" % int(isDefault))
         self.msg_callback("size %d %d" % (pb['width'],pb['height']))
+        self.msg_callback("bundlepath %s" % bundlepath)
 
         # MIDI Devices might change port names at anytime
         # To properly restore MIDI HW connections we need to map the "old" port names (from project)
