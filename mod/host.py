@@ -691,7 +691,8 @@ class Host(object):
         websocket.write_message("truebypass %i %i" % (get_truebypass_value(False), get_truebypass_value(True)))
         websocket.write_message("loading_start %d %d" % (self.pedalboard_empty, self.pedalboard_modified))
         websocket.write_message("size %d %d" % (self.pedalboard_size[0], self.pedalboard_size[1]))
-        websocket.write_message("bundlepath %s" % self.pedalboard_path)
+        if self.pedalboard_path:
+          websocket.write_message("bundlepath %s" % self.pedalboard_path)
 
         crashed = self.crashed
         self.crashed = False
