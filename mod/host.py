@@ -722,8 +722,9 @@ class Host(object):
                     self.reset(hmi_clear_callback)
 
             elif cmd == "transport":
-                speed = 1.0 if bool(int(msg[1])) else 0.0
-                bpm   = float(msg[2])
+                rolling = int(msg[1])
+                speed   = 1.0 if (rolling != 0) else 0.0
+                bpm     = float(msg[2])
 
                 for instance_id, plugin in self.plugins.items():
                     _, _2, bpm_symbol, speed_symbol = plugin['designations']
@@ -735,6 +736,8 @@ class Host(object):
                     elif speed_symbol is not None:
                         self.plugins[instance_id]['ports'][speed_symbol] = speed
                         self.msg_callback("param_set %s %s %f" % (plugin['instance'], speed_symbol, speed))
+
+                self.msg_callback("transport %i %f" % (rolling, bpm))
 
             elif cmd == "data_finish":
                 self.send_output_data_ready()
@@ -824,6 +827,7 @@ class Host(object):
         data = get_jack_data()
         websocket.write_message("mem_load " + self.get_free_memory_value())
         websocket.write_message("stats %0.1f %i" % (data['cpuLoad'], data['xruns']))
+        websocket.write_message("transport %i %f" % (int(self.transport_rolling), self.transport_bpm))
         websocket.write_message("truebypass %i %i" % (get_truebypass_value(False), get_truebypass_value(True)))
         websocket.write_message("loading_start %d %d" % (self.pedalboard_empty, self.pedalboard_modified))
         websocket.write_message("size %d %d" % (self.pedalboard_size[0], self.pedalboard_size[1]))
@@ -2231,6 +2235,32 @@ _:b%i
 
     def set_pedalboard_size(self, width, height):
         self.pedalboard_size = [width, height]
+
+    def set_transport(self, rolling, bpm):
+        if self.transport_rolling == rolling and self.transport_bpm == bpm:
+            return
+
+        speed = 1.0 if rolling else 0.0
+        msg = "transport %i %f" % (int(rolling), bpm)
+
+        for instance_id, plugin in self.plugins.items():
+            _, _2, bpm_symbol, speed_symbol = plugin['designations']
+
+            if bpm_symbol is not None:
+                self.plugins[instance_id]['ports'][bpm_symbol] = bpm
+                self.msg_callback("param_set %s %s %f" % (plugin['instance'], bpm_symbol, bpm))
+
+            elif speed_symbol is not None:
+                self.plugins[instance_id]['ports'][speed_symbol] = speed
+                self.msg_callback("param_set %s %s %f" % (plugin['instance'], speed_symbol, speed))
+
+        self.transport_rolling = rolling
+
+        if self.transport_bpm != bpm:
+            self.transport_bpm = bpm
+            self.send_modified(msg)
+        else:
+            self.send_notmodified(msg)
 
     def add_external_port(self, name, mode, typ, callback):
         # ignored

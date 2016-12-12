@@ -256,6 +256,10 @@ class Session(object):
     def ws_pedalboard_size(self, width, height):
         self.host.set_pedalboard_size(width, height)
 
+    # set the transport state
+    def ws_transport_set(self, rolling, bpm, ws):
+        self.host.set_transport(rolling, bpm)
+
     # -----------------------------------------------------------------------------------------------------------------
     # TODO
     # Everything after this line is yet to be documented

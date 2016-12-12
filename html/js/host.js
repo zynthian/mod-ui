@@ -95,6 +95,13 @@ $('document').ready(function() {
             return
         }
 
+        if (cmd == "transport") {
+            var rolling = parseInt(data[1]) != 0
+            var bpm     = parseFloat(data[2])
+            desktop.setTransportState(rolling, bpm)
+            return
+        }
+
         if (cmd == "preset") {
             var instance = data[1]
             var value    = data[2]

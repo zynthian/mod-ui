@@ -37,6 +37,8 @@ function Desktop(elements) {
         presetSaveAsButton: $('<div>'),
         presetManageButton: $('<div>'),
         presetDisableButton: $('<div>'),
+        transportPlayButton: $('<div>'),
+        transportBPM: $('<div>'),
         effectBox: $('<div>'),
         effectBoxTrigger: $('<div>'),
         cloudPluginBox: $('<div>'),
@@ -771,6 +773,11 @@ function Desktop(elements) {
         var addressed = !!self.hardwareManager.addressingsByPortSymbol['/pedalboard/:presets']
         self.pedalPresets.start(self.pedalboardPresetId, addressed)
     })
+    elements.transportPlayButton.click(function (e) {
+        var rolling = !$(this).hasClass("playing"),
+            bpm = $('#js-transport-bpm').text()
+        self.triggerTransport(rolling, bpm)
+    })
     elements.bypassLeftButton.click(function () {
         self.triggerTrueBypass("Left", !$(this).hasClass("bypassed"))
     })
@@ -815,6 +822,41 @@ function Desktop(elements) {
                 }
             }
         })
+    })
+
+    elements.transportBPM.keydown(function (e) {
+        // enter
+        if (e.keyCode == 13) {
+            $(this).blur()
+            return false
+        }
+        // numbers
+        if (e.keyCode >= 48 && e.keyCode <= 57)
+            return true;
+        if (e.keyCode >= 96 && e.keyCode <= 105)
+            return true;
+        // backspace and delete
+        if (e.keyCode == 8 || e.keyCode == 46 || e.keyCode == 110)
+            return true;
+        // left, right, dot
+        if (e.keyCode == 37 || e.keyCode == 39 || e.keyCode == 190)
+            return true;
+        // prevent key
+        e.preventDefault();
+        return false
+    })
+    elements.transportBPM.blur(function () {
+        var value = parseFloat($(this).text())
+        if (isNaN(value)) {
+            value = 120.0
+            $(this).text("120.00")
+        } else if (value < 10.0) {
+            value = 10.0;
+        } else if (value > 250.0) {
+            value = 250.0;
+        }
+        var rolling = elements.transportPlayButton.hasClass("playing")
+        self.triggerTransport(rolling, value)
     })
 
     elements.shareButton.click(function () {
@@ -1394,6 +1436,10 @@ Desktop.prototype.showMidiDeviceList = function () {
     this.midiDevices.start()
 }
 
+Desktop.prototype.triggerTransport = function (rolling, bpm) {
+    ws.send("transport " + (rolling ? "1" : "0") + " " + bpm)
+}
+
 Desktop.prototype.triggerTrueBypass = function (channelName, bypassed) {
     var self = this;
     $.ajax({
@@ -1406,6 +1452,11 @@ Desktop.prototype.triggerTrueBypass = function (channelName, bypassed) {
             }
         }
     })
+}
+
+Desktop.prototype.setTransportState = function (playing, bpm) {
+    $("#js-transport-play")[(playing ? "add" : "remove") + "Class"]("playing");
+    $('#js-transport-bpm').text(sprintf("%.2f", bpm))
 }
 
 Desktop.prototype.setTrueBypassButton = function (channelName, state) {

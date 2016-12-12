@@ -7007,6 +7007,21 @@ header#pedalboard-actions .sub-menu-trigger:hover ul,
 #pedalboards-library header .sub-menu-trigger:hover ul {
   display: block;
 }
+header#pedalboard-actions #js-transport-bpm,
+#bank-library header #js-transport-bpm,
+#cloud-plugins-library header #js-transport-bpm,
+#pedalboards-library header #js-transport-bpm {
+  bottom: 12px;
+  font-size: 14px;
+  font-weight: bold;
+  left: 38px;
+  color: #fff;
+  text-align: center;
+  right: 38px;
+  padding: 2px;
+  border: 1px solid #000;
+  background: black;
+}
 header#pedalboard-actions button,
 #bank-library header button,
 #cloud-plugins-library header button,
@@ -7061,6 +7076,12 @@ header#pedalboard-actions button#js-preset-enabler.selected,
 #bank-library header button#js-preset-enabler.selected,
 #cloud-plugins-library header button#js-preset-enabler.selected,
 #pedalboards-library header button#js-preset-enabler.selected {
+  background-color: #883996;
+}
+header#pedalboard-actions button#js-transport-play.playing,
+#bank-library header button#js-transport-play.playing,
+#cloud-plugins-library header button#js-transport-play.playing,
+#pedalboards-library header button#js-transport-play.playing {
   background-color: #883996;
 }
 header#pedalboard-actions button.js-reset,

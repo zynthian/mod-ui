@@ -546,6 +546,18 @@ header#pedalboard-actions,
       display: block;
     }
   }
+  #js-transport-bpm {
+    bottom: 12px;
+    font-size: 14px;
+    font-weight: bold;
+    left: 38px;
+    color: #fff;
+    text-align: center;
+    right: 38px;
+    padding: 2px;
+    border: 1px solid #000;
+    background: black;
+  }
   button {
     background-position: 8px 50%;
     background-size: 25px;
@@ -575,6 +587,11 @@ header#pedalboard-actions,
     &#js-preset-enabler {
         &:hover, &.selected {
             background-color: @brand-primary;
+        }
+    }
+    &#js-transport-play {
+        &.playing {
+          background-color: @brand-primary;
         }
     }
     &.js-reset {

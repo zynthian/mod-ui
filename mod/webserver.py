@@ -620,6 +620,11 @@ class ServerWebSocket(websocket.WebSocketHandler):
             height = int(float(data[2]))
             SESSION.ws_pedalboard_size(width, height)
 
+        elif cmd == "transport":
+            rolling = bool(int(data[1]))
+            bpm     = float(data[2])
+            SESSION.ws_transport_set(rolling, bpm, self)
+
 class PackageUninstall(JsonRequestHandler):
     @web.asynchronous
     @gen.engine

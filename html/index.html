@@ -107,6 +107,8 @@ $('document').ready(function() {
         presetSaveAsButton: $('#pedalboard-info .js-preset-save-as'),
         presetManageButton: $('#pedalboard-info .js-preset-manage'),
         presetDisableButton: $('#pedalboard-info .js-preset-disable'),
+        transportPlayButton: $('#pedalboard-info #js-transport-play'),
+        transportBPM: $('#pedalboard-info #js-transport-bpm'),
         effectBox: $('#plugins-library'),
         pedalboardTrigger: $('#main-menu #mod-plugins'),
         cloudPluginBox: $('#cloud-plugins-library'),
@@ -422,6 +424,9 @@ $('document').ready(function() {
             <div id="pedalboard-info">
                 <h1 class="top bottom {{titleblend}}">{{fulltitle}}</h1>
                 <div class="actions">
+                    <button id="js-transport-play">Play</button>
+                    <span id="js-transport-bpm" contenteditable="true">120.00</span>
+
                     <button class="js-preset" id="js-preset-enabler">Presets</button>
                     <button class="js-preset menu-trigger mod-hidden" id="js-preset-menu">Presets</button>
                     <ul class="drop-menu clearfix js-pedalboard-presets-menu" style="cursor:pointer;">
