@@ -737,6 +737,9 @@ class Host(object):
                         self.plugins[instance_id]['ports'][speed_symbol] = speed
                         self.msg_callback("param_set %s %s %f" % (plugin['instance'], speed_symbol, speed))
 
+                self.transport_rolling = bool(rolling)
+                self.transport_bpm     = bpm
+
                 self.msg_callback("transport %i %f" % (rolling, bpm))
 
             elif cmd == "data_finish":
