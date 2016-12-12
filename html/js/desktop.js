@@ -846,15 +846,21 @@ function Desktop(elements) {
         return false
     })
     elements.transportBPM.blur(function () {
-        var value = parseFloat($(this).text())
+        var valuestr = $(this).text(),
+            value = parseFloat(valuestr)
+
         if (isNaN(value)) {
             value = 120.0
-            $(this).text("120.00")
+            valuestr = "120.00"
         } else if (value < 10.0) {
             value = 10.0;
+            valuestr = "10.00"
         } else if (value > 250.0) {
             value = 250.0;
+            valuestr = "250.00"
         }
+        $(this).text(valuestr)
+
         var rolling = elements.transportPlayButton.hasClass("playing")
         self.triggerTransport(rolling, value)
     })
