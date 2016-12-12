@@ -26,12 +26,17 @@ function Desktop(elements) {
         addMidiButton: $('<div>'),
         midiPortsWindow: $('<div>'),
         midiPortsList: $('<div>'),
+        pedalPresetsWindow: $('<div>'),
+        pedalPresetsList: $('<div>'),
         saveBox: $('<div>'),
         saveButton: $('<div>'),
         saveAsButton: $('<div>'),
         resetButton: $('<div>'),
-        bypassLeftButton: $('<div>'),
-        bypassRightButton: $('<div>'),
+        pedalboardPresetsEnabler: $('<div>'),
+        presetSaveButton: $('<div>'),
+        presetSaveAsButton: $('<div>'),
+        presetManageButton: $('<div>'),
+        presetDisableButton: $('<div>'),
         effectBox: $('<div>'),
         effectBoxTrigger: $('<div>'),
         cloudPluginBox: $('<div>'),
@@ -140,30 +145,44 @@ function Desktop(elements) {
             self.pedalboard.pedalboard('setPortEnabled', instance, portSymbol, enabled)
         },
         renderForm: function (instance, port) {
-            var plugin = self.pedalboard.pedalboard('getGui', instance).effect
+            var label
+
+            if (instance == "/pedalboard") {
+                label = "Pedalboard"
+            } else {
+                var plugin = self.pedalboard.pedalboard('getGui', instance).effect
+                label = plugin.label
+            }
 
             if (port.symbol == ':bypass' || port.symbol == ':presets') {
                 context = {
-                    label: plugin.label,
-                    name:  port.symbol == ':bypass' ? "Bypass" : "Presets"
+                    label: label,
+                    name: port.symbol == ':bypass' ? "Bypass" : "Presets"
                 }
                 return Mustache.render(TEMPLATES.bypass_addressing, context)
             }
 
             context = {
-                label: plugin.label,
-                name:  port.shortName
+                label: label,
+                name: port.shortName
             }
             return Mustache.render(TEMPLATES.addressing, context)
         }
+    })
+
+    this.pedalPresets = new PedalboardPresetsManager({
+        pedalPresetsWindow: elements.pedalPresetsWindow,
+        pedalPresetsList: elements.pedalPresetsList,
+        hardwareManager: self.hardwareManager,
     })
 
     this.isApp = false
     this.title = ''
     this.cloudAccessToken = null
     this.pedalboardBundle = null
-    this.pedalboardEmpty = true
+    this.pedalboardEmpty  = true
     this.pedalboardModified = false
+    this.pedalboardPresetId = -1
     this.loadingPeldaboardForFirstTime = true
 
     this.pedalboard = self.makePedalboard(elements.pedalboard, elements.effectBox)
@@ -412,12 +431,25 @@ function Desktop(elements) {
         })
     }
 
+    this.saveConfigValue = function (key, value) {
+        $.ajax({
+            url: '/config/set',
+            type: 'POST',
+            data: {
+                key  : key,
+                value: value,
+            },
+            success: function () {},
+            error: function () {},
+            cache: false,
+            dataType: 'json'
+        })
+    }
+
     this.setupApp = function () {
         self.isApp = true
-        $('#mod-bypassLeft').hide()
-        $('#mod-bypassRight').hide()
-        $('#mod-cloud-plugins').hide()
         $('#mod-bank').hide()
+        $('#pedalboards-library').find('a').hide()
     }
 
     this.effectBox = self.makeEffectBox(elements.effectBox,
@@ -441,6 +473,12 @@ function Desktop(elements) {
         })
     }
     this.installMissingPlugins = function (plugins, callback) {
+        if (self.isApp) {
+            new Notification('warn', "Cannot load this pedalboard, some plugins are missing", 4000)
+            callback(false)
+            return
+        }
+
         var missingCount = 0
         var versions = {}
         var uris = []
@@ -643,6 +681,95 @@ function Desktop(elements) {
                 dataType: 'json'
             })
         })
+    })
+    elements.pedalboardPresetsEnabler.click(function () {
+        if (!confirm("Pedalboard will be locked now, you cannot add or remove plugins and connections. Continue?")) {
+            return
+        }
+
+        $.ajax({
+            url: '/pedalpreset/enable',
+            method: 'POST',
+            success: function () {
+                $('#js-preset-enabler').hide()
+                $('#js-preset-menu').show()
+                self.titleBox.text((self.title || 'Untitled') + " - Default")
+                self.pedalboardPresetId = 0
+            },
+            error: function () {
+                new Bug("Failed to activate pedalboard presets")
+            },
+            cache: false,
+        })
+    })
+    elements.presetDisableButton.click(function () {
+        if (!confirm("This action will remove all pedalboard presets. Continue?")) {
+            return
+        }
+
+        $.ajax({
+            url: '/pedalpreset/disable',
+            method: 'POST',
+            success: function () {
+                self.pedalboardPresetId = -1
+                self.titleBox.text(self.title || 'Untitled')
+                $('#js-preset-menu').hide()
+                $('#js-preset-enabler').show()
+            },
+            error: function () {
+                new Bug("Failed to disable pedalboard presets")
+            },
+            cache: false,
+        })
+    })
+    elements.presetSaveButton.click(function () {
+        if (self.pedalboardPresetId < 0) {
+            return new Notification('warn', 'Nothing to save', 1500)
+        }
+
+        $.ajax({
+            url: '/pedalpreset/save',
+            method: 'POST',
+            success: function () {
+                new Notification('info', 'Pedalboard preset saved', 2000)
+            },
+            error: function () {
+                new Bug("Failed to save pedalboard preset")
+            },
+            cache: false,
+            dataType: 'json',
+        })
+    })
+    elements.presetSaveAsButton.click(function () {
+        desktop.openPresetSaveWindow("", function (newName) {
+            $.ajax({
+                url: '/pedalpreset/saveas',
+                data: {
+                    title: newName,
+                },
+                success: function (resp) {
+                    if (! resp.ok) {
+                        return
+                    }
+                    self.pedalboardPresetId = resp.id
+                    self.titleBox.text((self.title || 'Untitled') + " - " + newName)
+                    new Notification('info', 'Pedalboard preset saved', 2000)
+                },
+                error: function () {
+                    new Bug("Failed to save pedalboard preset")
+                },
+                cache: false,
+                dataType: 'json',
+            })
+        })
+    })
+    elements.presetManageButton.click(function () {
+        if (self.pedalboardPresetId < 0) {
+            return new Notification('warn', 'Pedalboard presets are not enabled', 1500)
+        }
+
+        var addressed = !!self.hardwareManager.addressingsByPortSymbol['/pedalboard/:presets']
+        self.pedalPresets.start(self.pedalboardPresetId, addressed)
     })
     elements.bypassLeftButton.click(function () {
         self.triggerTrueBypass("Left", !$(this).hasClass("bypassed"))
@@ -1034,10 +1161,14 @@ Desktop.prototype.makePedalboard = function (el, effectBox) {
 
                     self.title = ''
                     self.pedalboardBundle = null
-                    self.pedalboardEmpty = true
+                    self.pedalboardEmpty  = true
                     self.pedalboardModified = false
+                    self.pedalboardPresetId = -1
                     self.titleBox.text('Untitled')
                     self.titleBox.addClass("blend");
+
+                    $('#js-preset-menu').hide()
+                    $('#js-preset-enabler').show()
 
                     callback(true)
                 },
@@ -1160,6 +1291,7 @@ Desktop.prototype.makeEffectBox = function (el, trigger) {
         trigger: trigger,
         windowManager: this.windowManager,
         pedalboard: this.pedalboard,
+        saveConfigValue: this.saveConfigValue,
     })
 }
 
@@ -1238,11 +1370,6 @@ Desktop.prototype.reset = function (callback) {
     }
 
     this.pedalboard.data('wait').start('Loading pedalboard...')
-
-    this.title = ''
-    this.pedalboardBundle = null
-    this.pedalboardEmpty = true
-    this.pedalboardModified = false
     this.pedalboard.pedalboard('reset', callback)
 }
 
@@ -1308,6 +1435,11 @@ Desktop.prototype.loadPedalboard = function (bundlepath, callback) {
                 self.pedalboardModified = false
                 self.titleBox.text(resp.name);
                 self.titleBox.removeClass("blend");
+
+                // TODO: decide what to do with this
+                self.pedalboardPresetId = -1
+                $('#js-preset-menu').hide()
+                $('#js-preset-enabler').show()
 
                 callback(true)
             },
@@ -1509,26 +1641,46 @@ JqueryClass('statusTooltip', {
     }
 })
 
-function enable_dev_mode() {
-    // TODO: pedalboard presets
-    //$("#pedalboard-actions").find(".js-preset").show()
-
-    // enable non-stable plugins, NOT!
-    //$("#cloud-plugins-stable").parent().show()
-
-    // show install/update all plugins
+function enable_dev_mode(skipSaveConfig) {
+    // install/update all plugins
     $('#cloud_install_all').show()
     $('#cloud_update_all').show()
 
-    // show network and controller ping times
+    // network and controller ping times
     $('#mod-status').show().statusTooltip('updatePosition')
 
-    // show xrun counter
+    // xrun counter
     $('#mod-xruns').show()
 
-    // show buffer size button
+    // buffer size button
     $('#mod-buffersize').show()
+
+    if (!skipSaveConfig) {
+        // save settings
+        desktop.saveConfigValue("dev-mode", "on")
+    }
 
     // echo to you
     return "Dev mode enabled!"
+}
+
+function disable_dev_mode() {
+    // install/update all plugins
+    $('#cloud_install_all').hide()
+    $('#cloud_update_all').hide()
+
+    // network and controller ping times
+    $('#mod-status').hide()
+
+    // xrun counter
+    $('#mod-xruns').hide()
+
+    // buffer size button
+    $('#mod-buffersize').hide()
+
+    // save settings
+    desktop.saveConfigValue("dev-mode", "off")
+
+    // echo to you
+    return "Dev mode disabled!"
 }

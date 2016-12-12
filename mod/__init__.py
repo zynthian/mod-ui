@@ -14,10 +14,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from functools import wraps
-from tornado import ioloop
-import os, re, json, logging, shutil
+import os, re, json, shutil
 
 def jsoncall(method):
     @wraps(method)
@@ -43,18 +42,10 @@ def json_handler(obj):
     #print(type(obj), obj)
     return None
 
-def _json_or_remove(path):
-    try:
-        return json.loads(open(path).read())
-    except ValueError:
-        logging.warning("not JSON, removing: %s", path)
-        os.remove(path)
-        return None
-
 def check_environment():
     from mod.settings import (LV2_PEDALBOARDS_DIR,
                               DEFAULT_PEDALBOARD, DEFAULT_PEDALBOARD_COPY,
-                              DATA_DIR, DOWNLOAD_TMP_DIR,
+                              DATA_DIR, DOWNLOAD_TMP_DIR, KEYS_PATH,
                               BANKS_JSON_FILE, FAVORITES_JSON_FILE, UPDATE_FILE,
                               CAPTURE_PATH, PLAYBACK_PATH)
 
@@ -80,6 +71,9 @@ def check_environment():
             return False
 
     # create needed dirs and files
+    if not os.path.exists(KEYS_PATH):
+        os.makedirs(KEYS_PATH)
+
     if not os.path.exists(LV2_PEDALBOARDS_DIR):
         os.makedirs(LV2_PEDALBOARDS_DIR)
 
@@ -100,6 +94,21 @@ def check_environment():
 
     return True
 
+def safe_json_load(path, objtype):
+    if not os.path.exists(path):
+        return objtype()
+
+    try:
+        with open(path, 'r') as fh:
+            data = json.load(fh)
+    except:
+        return objtype()
+
+    if not isinstance(data, objtype):
+        return objtype()
+
+    return data
+
 def symbolify(name):
     if len(name) == 0:
         return "_"
@@ -108,11 +117,7 @@ def symbolify(name):
         name = "_" + name
     return name
 
-def get_hardware():
-    if not os.path.exists("/etc/mod-hardware-descriptor.json"):
-        return {}
+def get_hardware_actuators():
+    mod_hw = safe_json_load("/etc/mod-hardware-descriptor.json", dict)
 
-    with open("/etc/mod-hardware-descriptor.json") as fh:
-        hw = fh.read()
-
-    return json.loads(hw)
+    return mod_hw.get('actuators', [])

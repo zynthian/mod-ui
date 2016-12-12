@@ -131,7 +131,7 @@ typedef struct {
     int minorVersion;
     int release;
     int builder;
-    bool demo;
+    int licensed;
     const char* version;
     const char* stability;
     PluginAuthor author;
@@ -153,7 +153,7 @@ typedef struct {
     int minorVersion;
     int release;
     int builder;
-    bool demo;
+    int licensed;
     PluginGUI_Mini gui;
 } PluginInfo_Mini;
 
@@ -338,6 +338,7 @@ MOD_API bool disconnect_jack_ports(const char* port1, const char* port2);
 MOD_API void reset_xruns(void);
 
 // alsa stuff
+MOD_API void init_bypass(void);
 MOD_API bool get_truebypass_value(bool right);
 MOD_API bool set_truebypass_value(bool right, bool bypassed);
 

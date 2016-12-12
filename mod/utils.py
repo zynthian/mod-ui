@@ -249,7 +249,7 @@ class PluginInfo(Structure):
         ("minorVersion", c_int),
         ("release", c_int),
         ("builder", c_int),
-        ("demo", c_bool),
+        ("licensed", c_int),
         ("version", c_char_p),
         ("stability", c_char_p),
         ("author", PluginAuthor),
@@ -272,7 +272,7 @@ class PluginInfo_Mini(Structure):
         ("minorVersion", c_int),
         ("release", c_int),
         ("builder", c_int),
-        ("demo", c_bool),
+        ("licensed", c_int),
         ("gui", PluginGUI_Mini),
     ]
 
@@ -506,6 +506,9 @@ utils.disconnect_jack_ports.restype  = c_bool
 utils.reset_xruns.argtypes = None
 utils.reset_xruns.restype  = None
 
+utils.init_bypass.argtypes = None
+utils.init_bypass.restype  = None
+
 utils.get_truebypass_value.argtypes = [c_bool]
 utils.get_truebypass_value.restype  = c_bool
 
@@ -581,7 +584,7 @@ def get_plugin_gui_mini(uri):
 def get_plugin_control_inputs_and_monitored_outputs(uri):
     info = utils.get_plugin_control_inputs_and_monitored_outputs(uri.encode("utf-8"))
     if not info:
-        return {'inputs':[],'monitoredOutputs':[]}
+        return {'inputs':[],'monitoredOutputs':[],'error':True}
     return structToDict(info.contents)
 
 # trigger a preset rescan for a plugin the next time it's loaded
@@ -695,6 +698,9 @@ def reset_xruns():
 
 # ------------------------------------------------------------------------------------------------------------
 # alsa stuff
+
+def init_bypass():
+    utils.init_bypass()
 
 def get_truebypass_value(right):
     return bool(utils.get_truebypass_value(right))
