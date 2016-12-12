@@ -157,7 +157,7 @@ class Host(object):
         self.pedalboard_presets  = []
         self.next_hmi_pedalboard = None
 
-        if APP and os.getenv("MOD_LIVE_ISO") is not None:
+        if (APP and os.getenv("MOD_LIVE_ISO") is not None) or os.getenv("MOD_SYSTEM_OUTPUT"):
             self.jack_hwin_prefix  = "system:playback_"
             self.jack_hwout_prefix = "system:capture_"
         else:
