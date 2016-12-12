@@ -360,7 +360,7 @@ class Host(object):
         self.processing_pending_flag = False
         self.init_plugins_data()
 
-        if APP and os.getenv("MOD_LIVE_ISO") is not None:
+        if (APP and os.getenv("MOD_LIVE_ISO") is not None) or os.getenv("MOD_SYSTEM_OUTPUT"):
             self.jack_hwin_prefix  = "system:playback_"
             self.jack_hwout_prefix = "system:capture_"
         else:
