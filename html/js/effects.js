@@ -35,6 +35,7 @@ JqueryClass('effectBox', {
         options = $.extend({
             pedalboard: $('<div>'),
             windowManager: null,
+            saveConfigValue: function (key, value) {},
         }, options)
 
         self.data(options)
@@ -47,27 +48,35 @@ JqueryClass('effectBox', {
 
         self.data('searchbox', searchbox)
         searchbox.cleanableInput()
+
+        var lastKeyUp = null
         searchbox.keydown(function (e) {
             if (e.keyCode == 13) { //detect enter
+                if (lastKeyUp != null) {
+                    clearTimeout(lastKeyUp)
+                    lastKeyUp = null
+                }
                 self.effectBox('search')
                 return false
             }
             else if (e.keyCode == 8 || e.keyCode == 46) { //detect delete and backspace
-                setTimeout(function () {
+                if (lastKeyUp != null) {
+                    clearTimeout(lastKeyUp)
+                    lastKeyUp = null
+                }
+                lastKeyUp = setTimeout(function () {
                     self.effectBox('search')
                 }, 400);
             }
         })
-        var lastKeyUp = null
         searchbox.keypress(function (e) { // keypress won't detect delete and backspace but will only allow inputable keys
-            if (e.which == 13)
+            if (e.which == 13) {
                 return
+            }
             if (lastKeyUp != null) {
                 clearTimeout(lastKeyUp)
                 lastKeyUp = null
             }
-            if (e.which == 13)
-                return
             lastKeyUp = setTimeout(function () {
                 self.effectBox('search')
             }, 400);
@@ -98,6 +107,7 @@ JqueryClass('effectBox', {
 
         self.find('.js-effects-fold').click(function () {
             self.effectBox('toggle')
+            options.saveConfigValue("plugins-folded", self.hasClass('folded') ? "true" : "false")
         })
 
         self.find('.nav-left').click(function () {
@@ -240,7 +250,7 @@ JqueryClass('effectBox', {
         // count plugins first
         var pluginCount = plugins.length
         var categories = {
-            'Favorites': FAVORITES.length,
+            'Favorites': 0,
             'All': 0,
             'Delay': 0,
             'Distortion': 0,
@@ -262,6 +272,9 @@ JqueryClass('effectBox', {
                     categories[category] = 1
                 else
                     categories[category] += 1
+            }
+            if (FAVORITES.indexOf(plugins[i].uri) >= 0) {
+                categories.Favorites += 1
             }
             categories.All += 1
         }
@@ -335,12 +348,12 @@ JqueryClass('effectBox', {
 
         var plugin_data = {
             uri   : uri,
-            brand : plugin.brand,
+            brand : plugin.brand || "&nbsp;",
             label : plugin.label,
             thumbnail_href: (plugin.gui && plugin.gui.thumbnail)
                           ? ("/effect/image/thumbnail.png?uri=" + uri + "&v=" + ver)
                           :  "/resources/pedals/default-thumbnail.png",
-            demo: plugin.demo
+            demo: plugin.licensed < 0
         }
 
         var div = document.createElement("div");
@@ -410,7 +423,7 @@ JqueryClass('effectBox', {
                 name  : plugin.name,
                 label : plugin.label,
                 ports : plugin.ports,
-                demo  : !!plugin.demo,
+                demo  : plugin.licensed < 0,
                 installed: true,
                 favorite_class: FAVORITES.indexOf(plugin.uri) >= 0 ? "favorite" : "",
                 pedalboard_href: desktop.getPedalboardHref(plugin.uri),

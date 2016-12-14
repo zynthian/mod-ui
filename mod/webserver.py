@@ -19,16 +19,15 @@ import json
 import os
 import re
 import shutil
-import socket
 import subprocess
 import sys
-import tornado.ioloop
-import tornado.options
-import tornado.escape
 import time
 from base64 import b64decode, b64encode
 from signal import signal, SIGUSR1, SIGUSR2
 from tornado import gen, iostream, web, websocket
+from tornado.escape import squeeze, url_escape, xhtml_escape
+from tornado.ioloop import IOLoop
+from tornado.template import Loader
 from tornado.util import unicode_type
 from uuid import uuid4
 
@@ -38,9 +37,9 @@ from mod.settings import (APP, LOG,
                           LV2_PLUGIN_DIR, LV2_PEDALBOARDS_DIR, IMAGE_VERSION,
                           UPDATE_FILE, USING_256_FRAMES_FILE,
                           DEFAULT_ICON_TEMPLATE, DEFAULT_SETTINGS_TEMPLATE, DEFAULT_ICON_IMAGE,
-                          DEFAULT_PEDALBOARD, DATA_DIR, USER_ID_JSON_FILE, FAVORITES_JSON_FILE, BLUETOOTH_PIN)
+                          DEFAULT_PEDALBOARD, DATA_DIR, FAVORITES_JSON_FILE, PREFERENCES_JSON_FILE, USER_ID_JSON_FILE)
 
-from mod import check_environment, jsoncall, json_handler
+from mod import check_environment, jsoncall, safe_json_load
 from mod.bank import list_banks, save_banks, remove_pedalboard_from_banks
 from mod.session import SESSION
 from mod.utils import (init as lv2_init,
@@ -172,7 +171,7 @@ def install_package(bundlename, callback):
         os.remove(filename)
         install_bundles_in_tmp_dir(callback)
 
-    ioloop = tornado.ioloop.IOLoop.instance()
+    ioloop = IOLoop.instance()
     ioloop.add_handler(proc.stdout.fileno(), end_untar_pkgs, 16)
 
 def move_file(src, dst, callback):
@@ -185,7 +184,7 @@ def move_file(src, dst, callback):
         ioloop.remove_handler(fileno)
         callback()
 
-    ioloop = tornado.ioloop.IOLoop.instance()
+    ioloop = IOLoop.instance()
     ioloop.add_handler(proc.stdout.fileno(), end_move, 16)
 
 class JsonRequestHandler(web.RequestHandler):
@@ -222,6 +221,8 @@ class JsonRequestHandler(web.RequestHandler):
 
 class RemoteRequestHandler(JsonRequestHandler):
     def set_default_headers(self):
+        if 'Origin' not in self.request.headers.keys():
+            return
         origin = self.request.headers['Origin']
         match  = re.match(r'^(\w+)://([^/]*)/?', origin)
         if match is None:
@@ -269,24 +270,11 @@ class SimpleFileReceiver(JsonRequestHandler):
     def process_file(self, data, callback=lambda:None):
         """to be overriden"""
 
-class BluetoothSetPin(JsonRequestHandler):
-    def post(self):
-        pin = self.get_argument("pin", None)
-
-        if pin is None:
-            self.write(False)
-            return
-
-        with open(BLUETOOTH_PIN, 'w') as fh:
-            fh.write(pin)
-
-        self.write(True)
-
 class SystemInfo(JsonRequestHandler):
     def get(self):
         uname = os.uname()
         info = {
-            "hardware": {},
+            "hardware": safe_json_load("/etc/mod-hardware-descriptor.json", dict),
             "env": dict((k, os.environ[k]) for k in [k for k in os.environ.keys() if k.startswith("MOD")]),
             "python": {
                 "argv"    : sys.argv,
@@ -301,10 +289,6 @@ class SystemInfo(JsonRequestHandler):
                 "version": uname.version
             }
         }
-
-        if os.path.exists("/etc/mod-hardware-descriptor.json"):
-            with open("/etc/mod-hardware-descriptor.json", 'r') as fd:
-                info["hardware"] = json.loads(fd.read())
 
         self.write(info)
 
@@ -636,6 +620,11 @@ class ServerWebSocket(websocket.WebSocketHandler):
             height = int(float(data[2]))
             SESSION.ws_pedalboard_size(width, height)
 
+        elif cmd == "transport":
+            rolling = bool(int(data[1]))
+            bpm     = float(data[2])
+            SESSION.ws_transport_set(rolling, bpm, self)
+
 class PackageUninstall(JsonRequestHandler):
     @web.asynchronous
     @gen.engine
@@ -718,7 +707,7 @@ class PedalboardPackBundle(web.RequestHandler):
         tmpstep2 = os.path.join(tmpdir, "pedalboard+audio.tar.gz")
 
         # local usage
-        ioloop = tornado.ioloop.IOLoop.instance()
+        ioloop = IOLoop.instance()
 
         # save variable locally, used across callbacks
         self.proc = None
@@ -876,6 +865,61 @@ class PedalboardImageWait(JsonRequestHandler):
             'ctime': "%.1f" % ctime,
         })
 
+class PedalboardPresetEnable(JsonRequestHandler):
+    def post(self):
+        SESSION.host.pedalpreset_init()
+        self.write(True)
+
+class PedalboardPresetDisable(JsonRequestHandler):
+    def post(self):
+        SESSION.host.pedalpreset_clear()
+        self.write(True)
+
+class PedalboardPresetSave(JsonRequestHandler):
+    def post(self):
+        ok = SESSION.host.pedalpreset_save()
+        self.write(ok)
+
+class PedalboardPresetSaveAs(JsonRequestHandler):
+    def get(self):
+        title = self.get_argument('title')
+        idx   = SESSION.host.pedalpreset_saveas(title)
+
+        self.write({
+            'ok': idx is not None,
+            'id': idx
+        })
+
+class PedalboardPresetRemove(JsonRequestHandler):
+    def get(self):
+        idx = int(self.get_argument('id'))
+        ok  = SESSION.host.pedalpreset_remove(idx)
+        self.write(ok)
+
+class PedalboardPresetList(JsonRequestHandler):
+    def get(self):
+        presets = SESSION.host.pedalboard_presets
+        presets = dict((i, presets[i]['name']) for i in range(len(presets)) if presets[i] is not None)
+        self.write(presets)
+
+class PedalboardPresetName(JsonRequestHandler):
+    def get(self):
+        idx  = int(self.get_argument('id'))
+        name = SESSION.host.pedalpreset_name(idx) or ""
+        self.write({
+            'ok'  : bool(name),
+            'name': name
+        })
+
+class PedalboardPresetLoad(JsonRequestHandler):
+    @web.asynchronous
+    @gen.engine
+    def get(self):
+        idx = int(self.get_argument('id'))
+        # FIXME: callback invalid?
+        ok  = yield gen.Task(SESSION.host.pedalpreset_load, idx)
+        self.write(ok)
+
 class DashboardClean(JsonRequestHandler):
     @web.asynchronous
     @gen.engine
@@ -925,7 +969,7 @@ class TemplateHandler(web.RequestHandler):
         # 1. If we don't have a version parameter, redirect
         curVersion = self.get_version()
         try:
-            version = tornado.escape.url_escape(self.get_argument('v'))
+            version = url_escape(self.get_argument('v'))
         except web.MissingArgumentError:
             uri  = self.request.uri
             uri += '&' if self.request.query else '?'
@@ -941,7 +985,7 @@ class TemplateHandler(web.RequestHandler):
         if not path:
             path = 'index.html'
 
-        loader = tornado.template.Loader(HTML_DIR)
+        loader = Loader(HTML_DIR)
         section = path.split('.')[0]
         try:
             context = getattr(self, section)()
@@ -956,26 +1000,27 @@ class TemplateHandler(web.RequestHandler):
         if IMAGE_VERSION is not None and len(IMAGE_VERSION) > 1:
             # strip initial 'v' from version if present
             version = IMAGE_VERSION[1:] if IMAGE_VERSION[0] == "v" else IMAGE_VERSION
-            return tornado.escape.url_escape(version)
+            return url_escape(version)
         return str(int(time.time()))
 
     def index(self):
         context = {}
-        user_id = {}
 
-        try:
-            with open(USER_ID_JSON_FILE, 'r') as fd:
-                user_id = json.load(fd)
-        except:
-            pass
+        user_id = safe_json_load(USER_ID_JSON_FILE, dict)
+        prefs   = safe_json_load(PREFERENCES_JSON_FILE, dict)
 
-        with open(DEFAULT_ICON_TEMPLATE, 'r') as fd:
-            default_icon_template = tornado.escape.squeeze(fd.read().replace("'", "\\'"))
+        with open(DEFAULT_ICON_TEMPLATE, 'r') as fh:
+            default_icon_template = squeeze(fh.read().replace("'", "\\'"))
 
-        with open(DEFAULT_SETTINGS_TEMPLATE, 'r') as fd:
-            default_settings_template = tornado.escape.squeeze(fd.read().replace("'", "\\'"))
+        with open(DEFAULT_SETTINGS_TEMPLATE, 'r') as fh:
+            default_settings_template = squeeze(fh.read().replace("'", "\\'"))
 
-        pbname = tornado.escape.xhtml_escape(SESSION.host.pedalboard_name)
+        pbname = xhtml_escape(SESSION.host.pedalboard_name)
+        prname = SESSION.host.pedalpreset_name()
+
+        fullpbname = pbname or "Untitled"
+        if prname:
+            fullpbname += " - " + prname
 
         context = {
             'default_icon_template': default_icon_template,
@@ -983,19 +1028,20 @@ class TemplateHandler(web.RequestHandler):
             'default_pedalboard': DEFAULT_PEDALBOARD,
             'cloud_url': CLOUD_HTTP_ADDRESS,
             'pedalboards_url': PEDALBOARDS_HTTP_ADDRESS,
-            'hardware_profile': b64encode(json.dumps(SESSION.get_hardware()).encode("utf-8")),
+            'hardware_profile': b64encode(json.dumps(SESSION.get_hardware_actuators()).encode("utf-8")),
             'version': self.get_argument('v'),
             'lv2_plugin_dir': LV2_PLUGIN_DIR,
             'bundlepath': SESSION.host.pedalboard_path,
             'title':  pbname,
             'size': json.dumps(SESSION.host.pedalboard_size),
-            'fulltitle':  pbname or "Untitled",
+            'fulltitle':  fullpbname,
             'titleblend': '' if SESSION.host.pedalboard_name else 'blend',
             'using_app': 'true' if APP else 'false',
             'using_mod': 'true' if DEVICE_KEY else 'false',
-            'user_name': tornado.escape.xhtml_escape(user_id.get("name", "")),
-            'user_email': tornado.escape.xhtml_escape(user_id.get("email", "")),
+            'user_name': xhtml_escape(user_id.get("name", "")),
+            'user_email': xhtml_escape(user_id.get("email", "")),
             'favorites': json.dumps(gState.favorites),
+            'preferences': json.dumps(prefs),
         }
         return context
 
@@ -1040,7 +1086,7 @@ class BulkTemplateLoader(web.RequestHandler):
                 contents = fh.read()
             self.write("TEMPLATES['%s'] = '%s';\n\n"
                        % (template[:-5],
-                          tornado.escape.squeeze(contents.replace("'", "\\'"))
+                          squeeze(contents.replace("'", "\\'"))
                           )
                        )
         self.finish()
@@ -1056,7 +1102,7 @@ class Ping(JsonRequestHandler):
             end  = time.time()
             resp = {
                 'ihm_online': online,
-                'ihm_time'  : int((end - start) * 1000),
+                'ihm_time'  : int((end - start) * 1000) or 1,
             }
         else:
             resp = {
@@ -1100,6 +1146,19 @@ class SetBufferSize(JsonRequestHandler):
 class ResetXruns(JsonRequestHandler):
     def post(self):
         reset_xruns()
+        self.write(True)
+
+class SaveSingleConfigValue(JsonRequestHandler):
+    def post(self):
+        key   = self.get_argument("key")
+        value = self.get_argument("value")
+
+        data = safe_json_load(PREFERENCES_JSON_FILE, dict)
+        data[key] = value
+
+        with open(PREFERENCES_JSON_FILE, 'w') as fh:
+            json.dump(data, fh)
+
         self.write(True)
 
 class SaveUserId(JsonRequestHandler):
@@ -1247,17 +1306,18 @@ class TokensGet(JsonRequestHandler):
     def get(self):
         tokensConf = os.path.join(DATA_DIR, "tokens.conf")
 
-        if os.path.exists(tokensConf):
-            with open(tokensConf, 'r') as fd:
-                data = json.load(fd)
-                keys = data.keys()
-                data['ok'] = bool("user_id"       in keys and
-                                  "access_token"  in keys and
-                                  "refresh_token" in keys)
-                self.write(data)
-                return
+        if not os.path.exists(tokensConf):
+            self.write({ 'ok': False })
+            return
 
-        self.write({ 'ok': False })
+        with open(tokensConf, 'r') as fh:
+            data = json.load(fh)
+            keys = data.keys()
+
+        data['ok'] = bool("user_id"       in keys and
+                          "access_token"  in keys and
+                          "refresh_token" in keys)
+        self.write(data)
 
 class TokensSave(JsonRequestHandler):
     @jsoncall
@@ -1277,7 +1337,6 @@ settings = {'log_function': lambda handler: None} if not LOG else {}
 application = web.Application(
         EffectInstaller.urls('effect/install') +
         [
-            (r"/system/bluetooth/set", BluetoothSetPin),
             (r"/system/info", SystemInfo),
 
             (r"/update/download/", UpdateDownload),
@@ -1324,11 +1383,19 @@ application = web.Application(
             (r"/pedalboard/image/generate", PedalboardImageGenerate),
             (r"/pedalboard/image/wait", PedalboardImageWait),
 
+            # pedalboard stuff
+            (r"/pedalpreset/enable", PedalboardPresetEnable),
+            (r"/pedalpreset/disable", PedalboardPresetDisable),
+            (r"/pedalpreset/save", PedalboardPresetSave),
+            (r"/pedalpreset/saveas", PedalboardPresetSaveAs),
+            (r"/pedalpreset/remove", PedalboardPresetRemove),
+            (r"/pedalpreset/list", PedalboardPresetList),
+            (r"/pedalpreset/name", PedalboardPresetName),
+            (r"/pedalpreset/load", PedalboardPresetLoad),
+
             # bank stuff
             (r"/banks/?", BankLoad),
             (r"/banks/save/?", BankSave),
-
-            (r"/hardware", HardwareLoad),
 
             (r"/auth/nonce/?$", AuthNonce),
             (r"/auth/token/?$", AuthToken),
@@ -1352,6 +1419,8 @@ application = web.Application(
 
             (r"/favorites/add", FavoritesAdd),
             (r"/favorites/remove", FavoritesRemove),
+
+            (r"/config/set", SaveSingleConfigValue),
 
             (r"/ping/?", Ping),
             (r"/hello/?", Hello),
@@ -1395,23 +1464,19 @@ def signal_recv(sig, frame=0):
     else:
         return
 
-    tornado.ioloop.IOLoop.instance().add_callback_from_signal(func)
+    IOLoop.instance().add_callback_from_signal(func)
 
 def prepare(isModApp = False):
     check_environment()
     lv2_init()
 
-    if os.path.exists(FAVORITES_JSON_FILE):
-        with open(FAVORITES_JSON_FILE, 'r') as fd:
-            gState.favorites = json.load(fd)
+    gState.favorites = safe_json_load(FAVORITES_JSON_FILE, list)
 
-        if isinstance(gState.favorites, list):
-            uris = get_plugin_list()
-            for uri in gState.favorites:
-                if uri not in uris:
-                    gState.favorites.remove(uri)
-        else:
-            gState.favorites = []
+    if len(gState.favorites) > 0:
+        uris = get_plugin_list()
+        for uri in gState.favorites:
+            if uri not in uris:
+                gState.favorites.remove(uri)
 
     if False:
         print("Scanning plugins, this may take a little...")
@@ -1425,7 +1490,8 @@ def prepare(isModApp = False):
 
     application.listen(DEVICE_WEBSERVER_PORT, address="0.0.0.0")
     if LOG:
-        tornado.log.enable_pretty_logging()
+        from tornado.log import enable_pretty_logging
+        enable_pretty_logging()
 
     def checkhost():
         if SESSION.host.readsock is None or SESSION.host.writesock is None:
@@ -1436,14 +1502,14 @@ def prepare(isModApp = False):
         elif not SESSION.host.connected:
             ioinstance.call_later(0.2, checkhost)
 
-    ioinstance = tornado.ioloop.IOLoop.instance()
+    ioinstance = IOLoop.instance()
     ioinstance.add_callback(checkhost)
 
 def start():
-    tornado.ioloop.IOLoop.instance().start()
+    IOLoop.instance().start()
 
 def stop():
-    tornado.ioloop.IOLoop.instance().stop()
+    IOLoop.instance().stop()
 
 def run():
     prepare()

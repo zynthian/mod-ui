@@ -15,17 +15,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import os, time, logging, copy, json
+import os, time, logging, json
 
-from os import path
-
-from copy import deepcopy
 from datetime import timedelta
 from tornado import iostream, ioloop, gen
 
-from mod.settings import (MANAGER_PORT, DEV_ENVIRONMENT, DEV_HMI, DEV_HOST,
+from mod.settings import (DEV_ENVIRONMENT, DEV_HMI, DEV_HOST,
                           HMI_SERIAL_PORT, HMI_BAUD_RATE, HOST_CARLA)
-from mod import get_hardware
 from mod.bank import get_last_bank_and_pedalboard
 from mod.development import FakeHost, FakeHMI
 from mod.hmi import HMI
@@ -80,10 +76,8 @@ class Session(object):
             ws.close()
         self.host.end_session(lambda r:None)
 
-    def get_hardware(self):
-        hw = deepcopy(get_hardware())
-        hw["addressings"] = self.host.get_addressings()
-        return hw
+    def get_hardware_actuators(self):
+        return self.host.addressings.get_actuators()
 
     # -----------------------------------------------------------------------------------------------------------------
     # App utilities, needed only for mod-app
@@ -125,10 +119,6 @@ class Session(object):
 
     # Address a plugin parameter
     def web_parameter_address(self, port, actuator_uri, label, minimum, maximum, value, steps, callback):
-        if not (self.hmi.initialized or actuator_uri.startswith("/midi-")):
-            callback(False)
-            return
-
         instance, portsymbol = port.rsplit("/",1)
         self.host.address(instance, portsymbol, actuator_uri, label, minimum, maximum, value, steps, callback)
 
@@ -184,7 +174,7 @@ class Session(object):
     def websocket_closed(self, ws, callback):
         try:
             self.websockets.remove(ws)
-        except ValueError as e:
+        except ValueError:
             pass
 
         # if this is the last socket, end ui session
@@ -265,6 +255,10 @@ class Session(object):
     # set the size of the pedalboard (in 1:1 view, aka "full zoom")
     def ws_pedalboard_size(self, width, height):
         self.host.set_pedalboard_size(width, height)
+
+    # set the transport state
+    def ws_transport_set(self, rolling, bpm, ws):
+        self.host.set_transport(rolling, bpm)
 
     # -----------------------------------------------------------------------------------------------------------------
     # TODO

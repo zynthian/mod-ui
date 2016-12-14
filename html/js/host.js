@@ -95,6 +95,13 @@ $('document').ready(function() {
             return
         }
 
+        if (cmd == "transport") {
+            var rolling = parseInt(data[1]) != 0
+            var bpm     = parseFloat(data[2])
+            desktop.setTransportState(rolling, bpm)
+            return
+        }
+
         if (cmd == "preset") {
             var instance = data[1]
             var value    = data[2]
@@ -102,6 +109,41 @@ $('document').ready(function() {
                 value = ""
             }
             desktop.pedalboard.pedalboard("selectPreset", instance, value);
+            return
+        }
+
+        if (cmd == "pedal_preset") {
+            var index = parseInt(data[1])
+
+            $.ajax({
+                url: '/pedalpreset/name',
+                type: 'GET',
+                data: {
+                    id: index,
+                },
+                success: function (resp) {
+                    if (! resp.ok) {
+                        return
+                    }
+                    desktop.pedalboardPresetId = index
+                    desktop.titleBox.text((desktop.title || 'Untitled') + " - " + resp.name)
+                },
+                cache: false,
+                dataType: 'json'
+            })
+            return
+        }
+
+        if (cmd == "hw_map") {
+            var instance = data[1]
+            var symbol   = data[2]
+            var actuator = data[3]
+            var label    = data[4]
+            var minimum  = parseFloat(data[5])
+            var maximum  = parseFloat(data[6])
+            var steps    = parseInt(data[7])
+
+            desktop.hardwareManager.addHardwareMapping(instance, symbol, actuator, label, minimum, maximum, steps)
             return
         }
 
@@ -271,16 +313,21 @@ $('document').ready(function() {
         }
 
         if (cmd == "loading_end") {
-            // load new possible addressings
+            var presetId = parseInt(data[1])
+
             $.ajax({
-                url: '/hardware',
-                success: function (data) {
-                    loading = false
-                    HARDWARE_PROFILE = data
-                    desktop.hardwareManager.registerAllAddressings()
+                url: '/hello',
+                success: function (resp) {
                     desktop.pedalboard.pedalboard('scheduleAdapt', true)
                     desktop.pedalboardEmpty    = empty && !modified
                     desktop.pedalboardModified = modified
+                    desktop.pedalboardPresetId = presetId
+
+                    if (presetId >= 0) {
+                        $('#js-preset-enabler').hide()
+                        $('#js-preset-menu').show()
+                    }
+
                     desktop.init();
                 },
                 cache: false,
