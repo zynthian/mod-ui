@@ -152,12 +152,12 @@ class Addressings(object):
         if not os.path.exists(datafile):
             return
 
-        data = safe_json_load(datafile, list)
+        data = safe_json_load(datafile, dict)
 
         used_actuators = []
 
-        for actuator_uri in data:
-            for addr in data[actuator_uri]:
+        for actuator_uri, addrs in data.items():
+            for addr in addrs:
                 instance   = addr['instance']
                 instance_id,\
                 plugin_uri = instances[instance]
@@ -266,7 +266,12 @@ class Addressings(object):
         options = []
 
         if portsymbol == ":presets":
-            value, maximum, options, spreset = self.get_presets_as_options(instance_id)
+            data = self.get_presets_as_options(instance_id)
+
+            if data is None:
+                return None
+
+            value, maximum, options, spreset = data
 
         elif portsymbol != ":bypass":
             for port_info in get_plugin_control_inputs_and_monitored_outputs(plugin_uri)['inputs']:
@@ -342,6 +347,10 @@ class Addressings(object):
             addressings['addrs'].append(addressing_data)
 
         elif actuator_type == self.ADDRESSING_TYPE_CC:
+            if actuator_uri not in self.cc_addressings.keys():
+                print("ERROR: Can't load addressing for unavailable hardware '%s'" % actuator_uri)
+                return None
+
             addressings = self.cc_addressings[actuator_uri]
             addressings.append(addressing_data)
 
@@ -553,6 +562,7 @@ class Addressings(object):
         # safety check
         if len(presets) == 0:
             pluginData['preset'] = ""
+            print("ERROR: get_presets_as_options() called with 0 presets available for '%s'" % pluginData["uri"])
             return None
 
         # if no preset selected yet, we need to force one
@@ -564,7 +574,7 @@ class Addressings(object):
         for i in range(maximum):
             uri = presets[i]['uri']
             pluginData['mapPresets'].append(uri)
-            options.append((str(i), presets[i]['label']))
+            options.append((i, presets[i]['label']))
             if handled:
                 continue
             if pluginData['preset'] == uri:
@@ -575,6 +585,7 @@ class Addressings(object):
         if not handled and len(presets) == maximum:
             pluginData['mapPresets'] = []
             pluginData['preset'] = ""
+            print("ERROR: get_presets_as_options() called with an invalid preset uri '%s'" % pluginData['preset'])
             return None
 
         # handle case of current preset out of limits (>100)
@@ -582,7 +593,7 @@ class Addressings(object):
             i = value = maximum
             maximum += 1
             pluginData['mapPresets'].append(presets[i]['uri'])
-            options.append((str(i), presets[i]['label']))
+            options.append((i, presets[i]['label']))
 
         return (value, maximum, options, pluginData['preset'])
 

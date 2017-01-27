@@ -193,6 +193,7 @@ $('document').ready(function() {
         success: function (info) {
             INFO = info
         },
+        cache: false,
         dataType: 'json'
     });
     */
@@ -432,7 +433,7 @@ $('document').ready(function() {
                             <ul class="menu-preset-list sub-menu"></ul>
                         </li>
                         -->
-                        <li class="js-preset-manage">Manage / Assign</li>
+                        <li class="js-preset-manage">Load / Manage</li>
                         <li class="js-preset-disable">Disable</li>
                     </ul>
                     <button class="js-reset">New Pedalboard</button>
@@ -475,7 +476,7 @@ $('document').ready(function() {
         <!-- PEDALBOARD PRESETS -->
         <div id="pedal-presets-window" class="save-popup mod-hidden">
             <div class="mod-box" style="width: 400px">
-                <h1 class="pull-left">Manage presets</h1><span class="js-cancel close">&times;</span>
+                <h1 class="pull-left">Load / Manage presets</h1><span class="js-cancel close">&times;</span>
                 <form class="bottom">
                     <div class="controls clearfix">
                         <select class="preset-list" size="9" id="pedal-presets-list" style="background-color:inherit;"></select>
@@ -535,6 +536,7 @@ $('document').ready(function() {
             <li id="effect-tab-Dynamics">Dynamics</li>
             <li id="effect-tab-Filter">Filter</li>
             <li id="effect-tab-Generator">Generator</li>
+            <li id="effect-tab-MIDI">MIDI Utility</li>
             <li id="effect-tab-Modulator">Modulator</li>
             <li id="effect-tab-Reverb">Reverb</li>
             <li id="effect-tab-Simulator">Simulator</li>
@@ -568,6 +570,7 @@ $('document').ready(function() {
                     <div id="effect-content-Dynamics" class="plugins-wrapper"></div>
                     <div id="effect-content-Filter" class="plugins-wrapper"></div>
                     <div id="effect-content-Generator" class="plugins-wrapper"></div>
+                    <div id="effect-content-MIDI" class="plugins-wrapper"></div>
                     <div id="effect-content-Modulator" class="plugins-wrapper"></div>
                     <div id="effect-content-Reverb" class="plugins-wrapper"></div>
                     <div id="effect-content-Simulator" class="plugins-wrapper"></div>
@@ -609,6 +612,7 @@ $('document').ready(function() {
                     <li id="cloud-plugin-tab-Dynamics">Dynamics</li>
                     <li id="cloud-plugin-tab-Filter">Filter</li>
                     <li id="cloud-plugin-tab-Generator">Generator</li>
+                    <li id="cloud-plugin-tab-MIDI">MIDI Utility</li>
                     <li id="cloud-plugin-tab-Modulator">Modulator</li>
                     <li id="cloud-plugin-tab-Reverb">Reverb</li>
                     <li id="cloud-plugin-tab-Simulator">Simulator</li>
@@ -629,6 +633,7 @@ $('document').ready(function() {
                     <div id="cloud-plugin-content-Dynamics" class="plugins-wrapper"></div>
                     <div id="cloud-plugin-content-Filter" class="plugins-wrapper"></div>
                     <div id="cloud-plugin-content-Generator" class="plugins-wrapper"></div>
+                    <div id="cloud-plugin-content-MIDI" class="plugins-wrapper"></div>
                     <div id="cloud-plugin-content-Modulator" class="plugins-wrapper"></div>
                     <div id="cloud-plugin-content-Reverb" class="plugins-wrapper"></div>
                     <div id="cloud-plugin-content-Simulator" class="plugins-wrapper"></div>

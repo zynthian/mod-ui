@@ -168,6 +168,7 @@ class Host(object):
         self.pedalboard_pdata = {
             "uri"        : PEDALBOARD_URI,
             "addressings": {}, # symbol: addressing
+            "ports"      : {},
             "preset"     : "",
             "mapPresets" : []
         }
@@ -395,9 +396,12 @@ class Host(object):
 
     def addr_task_get_plugin_presets(self, uri):
         if uri == PEDALBOARD_URI:
+            if self.pedalboard_preset < 0 or len(self.pedalboard_presets) == 0:
+                return []
             self.pedalboard_pdata['preset'] = "file:///%i" % self.pedalboard_preset
             presets = self.pedalboard_presets
-            presets = [{'uri':'file:///%i'%i, 'label':presets[i]['name']} for i in range(len(presets)) if presets[i] is not None]
+            presets = [{'uri': 'file:///%i'%i,
+                        'label': presets[i]['name']} for i in range(len(presets)) if presets[i] is not None]
             return presets
         return get_plugin_info(uri)['presets']
 
@@ -1324,7 +1328,7 @@ class Host(object):
         }
 
         for instance_id, pluginData in self.plugins.items():
-            instance = pluginData['instance']
+            instance = pluginData['instance'].replace("/graph/","",1)
             pedalpreset['data'][instance] = {
                 "bypassed": pluginData['bypassed'],
                 "ports"   : pluginData['ports'].copy(),
@@ -1352,6 +1356,10 @@ class Host(object):
         self.plugins_removed = []
         self.pedalboard_preset = -1
         self.pedalboard_presets = []
+
+    def pedalpreset_disable(self, callback):
+        self.pedalpreset_clear()
+        self.address(PEDALBOARD_INSTANCE, ":presets", None, "", 0, 0, 0, 0, callback)
 
     def pedalpreset_save(self):
         if self.pedalboard_preset < 0 or self.pedalboard_preset >= len(self.pedalboard_presets):
@@ -1391,6 +1399,7 @@ class Host(object):
         used_actuators = []
 
         for instance, data in pedalpreset['data'].items():
+            instance    = "/graph/%s" % instance
             instance_id = self.mapper.get_id_without_creating(instance)
             pluginData  = self.plugins[instance_id]
             diffBypass  = pluginData['bypassed'] != data['bypassed']
@@ -1400,11 +1409,14 @@ class Host(object):
                 self.msg_callback("param_set %s :bypass 1.0" % (instance,))
                 self.bypass(instance, True, None)
 
-            if data['preset']:
+            if data['preset'] and data['preset'] != pluginData['preset']:
                 self.msg_callback("preset %s %s" % (instance, data['preset']))
                 yield gen.Task(self.preset_load, instance, data['preset'])
 
             for symbol, value in data['ports'].items():
+                if value == pluginData['ports'][symbol]:
+                    continue
+
                 self.msg_callback("param_set %s %s %f" % (instance, symbol, value))
                 self.param_set("%s/%s" % (instance, symbol), value, None)
 
@@ -1588,6 +1600,30 @@ class Host(object):
                 continue
             self.msg_callback("add_hw_port /graph/%s midi 1 %s %i" % (symbol, name.replace(" ","_"), index))
 
+        self.pedalpreset_clear()
+
+        pedal_presets = safe_json_load(os.path.join(bundlepath, "presets.json"), list)
+
+        if len(pedal_presets) > 0:
+            self.pedalboard_preset  = 0
+            self.pedalboard_presets = pedal_presets
+
+            init_pedal_preset = pedal_presets[0]['data']
+
+            for p in pb['plugins']:
+                pdata = init_pedal_preset.get(p['instance'], None)
+
+                if pdata is None:
+                    print("WARNING: Pedalboard preset missing data for instance name '%s'" % p['instance'])
+                    continue
+
+                p['bypassed'] = pdata['bypassed']
+
+                for port in p['ports']:
+                    port['value'] = pdata['ports'].get(port['symbol'], port['value'])
+
+                p['preset'] = pdata['preset']
+
         instances = {
             PEDALBOARD_INSTANCE: (PEDALBOARD_INSTANCE_ID, PEDALBOARD_URI)
         }
@@ -1634,7 +1670,7 @@ class Host(object):
                     badports.append(symbol)
                     valports[symbol] = 0.0
 
-            self.plugins[instance_id] = {
+            self.plugins[instance_id] = pluginData = {
                 "instance"    : instance,
                 "uri"         : p['uri'],
                 "bypassed"    : p['bypassed'],
@@ -1670,25 +1706,27 @@ class Host(object):
             for port in p['ports']:
                 symbol = port['symbol']
                 value  = port['value']
-                mchnnl = port['midiCC']['channel']
-                mctrl  = port['midiCC']['control']
 
-                if port['midiCC']['hasRanges']:
-                    minimum = port['midiCC']['minimum']
-                    maximum = port['midiCC']['maximum']
-                else:
-                    minimum, maximum = ranges[symbol]
-
-                self.plugins[instance_id]['ports'][symbol] = value
-                self.send_notmodified("param_set %d %s %f" % (instance_id, symbol, value))
-                self.msg_callback("param_set %s %s %f" % (instance, symbol, value))
+                if pluginData['ports'][symbol] != value:
+                    pluginData['ports'][symbol] = value
+                    self.send_notmodified("param_set %d %s %f" % (instance_id, symbol, value))
+                    self.msg_callback("param_set %s %s %f" % (instance, symbol, value))
 
                 # don't address "bad" ports
                 if symbol in badports:
                     continue
 
+                mchnnl = port['midiCC']['channel']
+                mctrl  = port['midiCC']['control']
+
                 if mchnnl >= 0 and mctrl >= 0:
-                    self.plugins[instance_id]['midiCCs'][symbol] = (mchnnl, mctrl, minimum, maximum)
+                    if port['midiCC']['hasRanges']:
+                        minimum = port['midiCC']['minimum']
+                        maximum = port['midiCC']['maximum']
+                    else:
+                        minimum, maximum = ranges[symbol]
+
+                    pluginData['midiCCs'][symbol] = (mchnnl, mctrl, minimum, maximum)
                     self.addressings.add_midi(instance_id, symbol, mchnnl, mctrl, minimum, maximum)
 
             for output in allports['monitoredOutputs']:
@@ -1734,14 +1772,6 @@ class Host(object):
                     port_alias = port_alias.split(";",1) if ";" in port_alias else [port_alias]
                     if aliasname1 in port_alias or aliasname2 in port_alias:
                         port_conns.append((port_from, port_to))
-
-        self.pedalpreset_clear()
-
-        more_pb_presets = safe_json_load(os.path.join(bundlepath, "presets.json"), list)
-
-        if len(more_pb_presets) > 0:
-            self.pedalboard_preset  = 0 # FIXME?
-            self.pedalboard_presets = more_pb_presets
 
         self.addressings.load(bundlepath, instances)
         self.addressings.registerMappings(self.msg_callback, rinstances)
@@ -1849,21 +1879,34 @@ class Host(object):
         # Write presets.json
         presets_path = os.path.join(bundlepath, "presets.json")
 
-        for instance in self.plugins_removed:
-            # TODO
-            pass
-
-        for instance_id in self.plugins_added:
-            # TODO
-            pass
-
         if len(self.pedalboard_presets) > 1:
+            for instance in self.plugins_removed:
+                for pedalpreset in self.pedalboard_presets:
+                    if pedalpreset is None:
+                        continue
+                    pedalpreset['data'].pop(instance.replace("/graph/","",1))
+
+            for instance_id in self.plugins_added:
+                for pedalpreset in self.pedalboard_presets:
+                    if pedalpreset is None:
+                        continue
+                    pluginData = self.plugins[instance_id]
+                    instance   = pluginData['instance'].replace("/graph/","",1)
+                    pedalpreset['data'][instance] = {
+                        "bypassed": pluginData['bypassed'],
+                        "ports"   : pluginData['ports'].copy(),
+                        "preset"  : pluginData['preset'],
+                    }
+
             presets = [p for p in self.pedalboard_presets if p is not None]
             with open(presets_path, 'w') as fh:
                 json.dump(presets, fh)
 
         elif os.path.exists(presets_path):
             os.remove(presets_path)
+
+        self.plugins_added   = []
+        self.plugins_removed = []
 
     def save_state_mainfile(self, bundlepath, title, titlesym):
         # Create list of midi in/out ports
@@ -1994,7 +2037,7 @@ _:b%i
         lv2:minimum %f ;
         lv2:maximum %f ;
         a midi:Controller ;
-    ] ;""" % plugin['midiCCs'][symbol]) if -1 not in plugin['midiCCs'][symbol] else "") # FIXME -1 vs min/max
+    ] ;""" % plugin['midiCCs'][symbol]) if -1 not in plugin['midiCCs'][symbol][0:2] else "") # FIXME -1 vs min/max
 
             # control output
             for port in info['ports']['control']['output']:

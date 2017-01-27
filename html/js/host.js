@@ -40,11 +40,6 @@ $('document').ready(function() {
 
         var cmd = data[0]
 
-        if (cmd == "ping") {
-            ws.send("pong")
-            return
-        }
-
         if (cmd == "stats") {
             var cpuLoad = parseFloat(data[1])
             var xruns   = parseInt(data[2])
@@ -69,6 +64,13 @@ $('document').ready(function() {
                     timeout_xruns = null
                 }, 500)
             }
+
+            desktop.networkStatus.timedOutPhase = 0
+            return
+        }
+
+        if (cmd == "ping") {
+            ws.send("pong")
             return
         }
 
@@ -309,7 +311,11 @@ $('document').ready(function() {
             var presetId = parseInt(data[1])
 
             $.ajax({
-                url: '/hello',
+                url: '/pedalpreset/name',
+                type: 'GET',
+                data: {
+                    id: presetId,
+                },
                 success: function (resp) {
                     desktop.pedalboard.pedalboard('scheduleAdapt', true)
                     desktop.pedalboardEmpty    = empty && !modified
@@ -319,8 +325,13 @@ $('document').ready(function() {
                     if (presetId >= 0) {
                         $('#js-preset-enabler').hide()
                         $('#js-preset-menu').show()
+
+                        if (resp.ok) {
+                            desktop.titleBox.text((desktop.title || 'Untitled') + " - " + resp.name)
+                        }
                     }
 
+                    loading = false
                     desktop.init();
                 },
                 cache: false,

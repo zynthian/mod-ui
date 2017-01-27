@@ -23,6 +23,7 @@ function PedalboardPresetsManager(options) {
         pedalPresetsList: $('<div>'),
         hardwareManager: null,
         currentlyAddressed: false,
+        presetCount: 0,
     }, options)
 
     options.pedalPresetsWindow.keydown(function (e) {
@@ -63,7 +64,9 @@ function PedalboardPresetsManager(options) {
         var selected = options.pedalPresetsList.find('option:selected')
         var selectId = selected.val()
 
-        if (selectId == 0 || options.currentlyAddressed) {
+        if (selectId == 0) {
+            return self.prevent(e, "Cannot delete initial preset")
+        } else if (options.currentlyAddressed) {
             return self.prevent(e)
         }
 
@@ -76,6 +79,11 @@ function PedalboardPresetsManager(options) {
             success: function () {
                 selected.remove()
                 options.pedalPresetsList.find('option:first').prop('selected','selected').click()
+
+                options.presetCount -= 1
+                if (options.presetCount <= 1) {
+                    options.pedalPresetsWindow.find('.js-assign-all').addClass('disabled')
+                }
             },
             error: function () {},
             cache: false,
@@ -89,7 +97,11 @@ function PedalboardPresetsManager(options) {
         return false
     })
 
-    options.pedalPresetsWindow.find('.js-assign-all').click(function () {
+    options.pedalPresetsWindow.find('.js-assign-all').click(function (e) {
+        if ($(this).hasClass("disabled")) {
+            return self.prevent(e, "Cannot assign list with only 1 preset")
+        }
+
         var port = {
             name: 'Presets',
             symbol: ':presets',
@@ -118,16 +130,32 @@ function PedalboardPresetsManager(options) {
         options.currentlyAddressed = currentlyAddressed
 
         self.getPedalPresetList(function (presets) {
-            if (presets.length == 0) {
+            options.presetCount = Object.keys(presets).length
+
+            if (options.presetCount == 0) {
                 return new Notification("info", "No pedalboard presets available")
+            }
+
+            if (options.presetCount == 1) {
+                options.pedalPresetsWindow.find('.js-assign-all').addClass('disabled')
+            } else {
+                options.pedalPresetsWindow.find('.js-assign-all').removeClass('disabled')
+            }
+
+            if (options.currentlyAddressed) {
+                options.pedalPresetsWindow.find('.js-delete').addClass('disabled')
+                options.pedalPresetsWindow.find('.js-rename').addClass('disabled')
+            } else {
+                options.pedalPresetsWindow.find('.js-delete').removeClass('disabled')
+                options.pedalPresetsWindow.find('.js-rename').removeClass('disabled')
             }
 
             // add new ones
             for (var i in presets) {
                 var elem = $('<option value="'+i+'">'+presets[i]+'</option>')
 
-                if (currentId == i) {
-                    elem.prop('selected','selected')
+                if (currentId == i && ! options.currentlyAddressed) {
+                    elem.prop('selected', 'selected')
                     if (i == 0) {
                         options.pedalPresetsWindow.find('.js-delete').addClass('disabled')
                     }
@@ -144,7 +172,7 @@ function PedalboardPresetsManager(options) {
         })
     }
 
-    this.prevent = function (e) {
+    this.prevent = function (e, customMessage) {
         var img = $('<img>').attr('src', 'img/icn-blocked.png')
         $('body').append(img)
         img.css({
@@ -156,12 +184,17 @@ function PedalboardPresetsManager(options) {
         setTimeout(function () {
             img.remove()
         }, 500)
-        new Notification("warn", "Cannot change presets while addressed to hardware", 3000)
+        new Notification("warn", customMessage || "Cannot change presets while addressed to hardware", 3000)
         return false
     }
 
-    this.optionClicked = function () {
+    this.optionClicked = function (e) {
         var selectId = $(this).val()
+
+        if (options.currentlyAddressed) {
+            options.pedalPresetsList.find('option:selected').removeProp('selected')
+            return self.prevent(e)
+        }
 
         if (selectId == 0) {
             options.pedalPresetsWindow.find('.js-delete').addClass('disabled')

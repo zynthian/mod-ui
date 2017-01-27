@@ -137,7 +137,12 @@ JqueryClass('cloudPluginBox', {
         var self = $(this)
         self.find('.plugins-wrapper').html('')
         self.find('ul.categories li').each(function () {
-            $(this).html($(this).html().split(/\s/)[0])
+            var content = $(this).html().split(/\s/)
+            if (content.length >= 2 && content[1] == "Utility") {
+                $(this).html(content[0] + " Utility")
+            } else {
+                $(this).html(content[0])
+            }
         });
     },
     checkLocalScreenshot: function (plugin) {
@@ -260,7 +265,8 @@ JqueryClass('cloudPluginBox', {
                     renderResults()
                 }
             },
-            dataType: 'json',
+            cache: false,
+            dataType: 'json'
         })
 
         // local search
@@ -301,7 +307,8 @@ JqueryClass('cloudPluginBox', {
                     if (results.cloud != null)
                         renderResults()
                 },
-                dataType: 'json',
+                cache: false,
+                dataType: 'json'
             })
         }
     },
@@ -383,7 +390,8 @@ JqueryClass('cloudPluginBox', {
                 if (results.local != null)
                     renderResults()
             },
-            dataType: 'json',
+            cache: false,
+            dataType: 'json'
         })
 
         // local search
@@ -424,7 +432,8 @@ JqueryClass('cloudPluginBox', {
                     if (results.cloud != null)
                         renderResults()
                 },
-                dataType: 'json',
+                cache: false,
+                dataType: 'json'
             })
         }
     },
@@ -448,7 +457,19 @@ JqueryClass('cloudPluginBox', {
 
         var category   = {}
         var categories = {
-            'All': plugins.length
+            'All': plugins.length,
+            'Delay': 0,
+            'Distortion': 0,
+            'Dynamics': 0,
+            'Filter': 0,
+            'Generator': 0,
+            'MIDI': 0,
+            'Modulator': 0,
+            'Reverb': 0,
+            'Simulator': 0,
+            'Spatial': 0,
+            'Spectral': 0,
+            'Utility': 0,
         }
         var cachedContentCanvas = {
             'All': self.find('#cloud-plugin-content-All')
@@ -461,14 +482,16 @@ JqueryClass('cloudPluginBox', {
             category = plugin.category[0]
             render   = self.cloudPluginBox('renderPlugin', plugin, cloudReached)
 
+            if (category == 'Utility' && plugin.category.length == 2 && plugin.category[1] == 'MIDI') {
+                category = 'MIDI'
+            }
+
             pluginsDict[plugin.uri] = plugin
 
-            if (category && category != 'All') {
-                if (categories[category] == null) {
-                    categories[category] = 1
+            if (category && category != 'All' && categories[category] != null) {
+                categories[category] += 1
+                if (cachedContentCanvas[category] == null) {
                     cachedContentCanvas[category] = self.find('#cloud-plugin-content-' + category)
-                } else {
-                    categories[category] += 1
                 }
                 render.clone(true).appendTo(cachedContentCanvas[category])
             }
@@ -486,10 +509,16 @@ JqueryClass('cloudPluginBox', {
         var self = $(this)
         self.data('categoryCount', categories)
 
-        var tab
         for (var category in categories) {
-            tab = self.find('#cloud-plugin-tab-' + category)
-            tab.html(tab.html().split(/\s/)[0] + ' <span class="plugin_count">(' + categories[category] + ')</span>')
+            var tab     = self.find('#cloud-plugin-tab-' + category)
+            var content = tab.html().split(/\s/)
+
+            if (content.length >= 2 && content[1] == "Utility") {
+                content = content[0] + " Utility"
+            } else {
+                content = content[0]
+            }
+            tab.html(content + ' <span class="plugin_count">(' + categories[category] + ')</span>')
         }
     },
 
@@ -559,17 +588,25 @@ JqueryClass('cloudPluginBox', {
                 }
             }
 
+            if (bundle_ids.length == 0) {
+                $('#cloud_install_all').removeClass("disabled").css({color:'white'})
+                $('#cloud_update_all').removeClass("disabled").css({color:'white'})
+                new Notification('warn', 'All plugins are '+(updateOnly?'updated':'installed')+', nothing to do', 8000)
+                return
+            }
+
             var count = 0
             var finished = function (resp, bundlename) {
                 self.cloudPluginBox('postInstallAction', resp.installed, resp.removed, bundlename)
-                if (resp.ok) {
-                    count += 1
-                    if (count == bundle_ids.length) {
-                        $('#cloud_install_all').removeClass("disabled").css({color:'white'})
-                        $('#cloud_update_all').removeClass("disabled") //.css({color:'white'})
-                    }
+                count += 1
+                if (count == bundle_ids.length) {
+                    $('#cloud_install_all').removeClass("disabled").css({color:'white'})
+                    $('#cloud_update_all').removeClass("disabled").css({color:'white'})
+                    new Notification('warn', 'All plugins are now '+(updateOnly?'updated':'installed'), 8000)
                 }
-                self.cloudPluginBox('search')
+                if (resp.ok) {
+                    self.cloudPluginBox('search')
+                }
             }
 
             for (var i in bundle_ids) {
@@ -769,6 +806,7 @@ JqueryClass('cloudPluginBox', {
                     localChecked = true
                     showInfo()
                 },
+                cache: false,
                 dataType: 'json'
             })
         }
@@ -802,6 +840,7 @@ JqueryClass('cloudPluginBox', {
                 cloudChecked = true
                 showInfo()
             },
+            cache: false,
             dataType: 'json'
         })
     },

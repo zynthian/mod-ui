@@ -40,7 +40,10 @@ function PedalboardSearcher(opt) {
     }
     this.lastKeyUp = null
     this.search = function () {
-        clearTimeout(self.lastKeyUp)
+        if (self.lastKeyUp != null) {
+            clearTimeout(self.lastKeyUp)
+            self.lastKeyUp = null
+        }
         var query = self.searchbox.val()
         var local = self.mode == 'installed'
 
@@ -72,17 +75,16 @@ function PedalboardSearcher(opt) {
             }, 400);
         }
     })
-    var lastKeyUp = null
     this.searchbox.keypress(function (e) { // keypress won't detect delete and backspace but will only allow inputable keys
         if (e.which == 13)
             return
-        if (lastKeyUp != null) {
-            clearTimeout(lastKeyUp)
-            lastKeyUp = null
+        if (self.lastKeyUp != null) {
+            clearTimeout(self.lastKeyUp)
+            self.lastKeyUp = null
         }
         if (e.which == 13)
             return
-        lastKeyUp = setTimeout(function () {
+        self.lastKeyUp = setTimeout(function () {
             self.search()
         }, 400);
     })
@@ -210,24 +212,20 @@ JqueryClass('pedalboardBox', {
         }
 
         canvas.append(rendered)
-        var img = rendered.find('.img');
-        $.ajax({
-            url: "/pedalboard/image/wait?bundlepath="+escape(pedalboard.bundle),
-            success: function (resp) {
-                if (resp.ok)
-                {
-                    img.css({backgroundImage: "url(/pedalboard/image/screenshot.png?bundlepath="+escape(pedalboard.bundle)+"&tstamp="+resp.ctime + ")"});
-                    img.addClass("loaded");
-                }
-                else
-                {
-                    img.addClass("broken");
-                }
-            },
-            error: function () {
+
+        wait_for_pedalboard_screenshot(pedalboard.bundle, function (resp) {
+            var img = rendered.find('.img');
+
+            if (resp.ok)
+            {
+                img.css({backgroundImage: "url(/pedalboard/image/thumbnail.png?bundlepath="+
+                                            escape(pedalboard.bundle)+"&tstamp="+resp.ctime+")"});
+                img.addClass("loaded");
+            }
+            else
+            {
                 img.addClass("broken");
-            },
-            dataType: 'json'
+            }
         })
 
         return rendered
