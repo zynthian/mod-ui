@@ -159,11 +159,15 @@ class Addressings(object):
         for actuator_uri, addrs in data.items():
             for addr in addrs:
                 instance   = addr['instance']
-                instance_id,\
-                plugin_uri = instances[instance]
                 portsymbol = addr['port']
-                curvalue   = self._task_get_port_value(instance_id, portsymbol)
 
+                try:
+                    instance_id, plugin_uri = instances[instance]
+                except KeyError:
+                    print("ERROR: An instance specified in addressings file is invalid")
+                    continue
+
+                curvalue = self._task_get_port_value(instance_id, portsymbol)
                 addrdata = self.add(instance_id, plugin_uri, portsymbol, actuator_uri,
                                     addr['label'], addr['minimum'], addr['maximum'], addr['steps'], curvalue)
 
@@ -442,13 +446,16 @@ class Addressings(object):
         addressing_data['addrs_idx'] = addressings_idx+1
         addressing_data['addrs_max'] = addressings_len
 
+        # reload value
+        addressing = addressings_addrs[addressings_idx]
+        addressing['value'] = addressing_data['value'] = self._task_get_port_value(addressing['instance_id'],
+                                                                                   addressing['port'])
+
         self._task_addressing(self.ADDRESSING_TYPE_HMI, actuator_hmi, addressing_data, callback)
 
     def hmi_load_footswitches(self, callback):
         def footswitch1_callback(ok):
             self.hmi_load_current("/hmi/footswitch2", callback)
-
-        # FIXME reload value?
 
         self.hmi_load_current("/hmi/footswitch1", footswitch1_callback)
 
@@ -462,8 +469,6 @@ class Addressings(object):
 
         # jump to first addressing
         addressings['idx'] = 0
-
-        # FIXME reload value?
 
         # ready to load
         self.hmi_load_current(actuator_uri, callback)
@@ -481,10 +486,6 @@ class Addressings(object):
 
         # jump to next available addressing
         addressings['idx'] = (addressings['idx'] + 1) % addressings_len
-
-        # reload value
-        addressing = addressings_addrs[addressings['idx']]
-        addressing['value'] = self._task_get_port_value(addressing['instance_id'], addressing['port'])
 
         # ready to load
         self.hmi_load_current(actuator_uri, callback)

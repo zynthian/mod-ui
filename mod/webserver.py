@@ -248,7 +248,7 @@ class SimpleFileReceiver(JsonRequestHandler):
         ]
 
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def post(self, sessionid=None, chunk_number=None):
         # self.result can be set by subclass in process_file,
         # so that answer will be returned to browser
@@ -296,7 +296,7 @@ class UpdateDownload(SimpleFileReceiver):
     destination_dir = "/tmp/update"
 
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def process_file(self, data, callback=lambda:None):
         self.sfr_callback = callback
 
@@ -309,7 +309,7 @@ class UpdateDownload(SimpleFileReceiver):
 
 class UpdateBegin(JsonRequestHandler):
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def post(self):
         if not os.path.exists(UPDATE_FILE):
             self.write(False)
@@ -326,7 +326,7 @@ class EffectInstaller(SimpleFileReceiver):
     destination_dir = DOWNLOAD_TMP_DIR
 
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def process_file(self, data, callback=lambda:None):
         def on_finish(resp):
             self.result = resp
@@ -358,7 +358,7 @@ class EffectList(JsonRequestHandler):
 
 class SDKEffectInstaller(EffectInstaller):
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def post(self):
         upload = self.request.files['package'][0]
 
@@ -477,7 +477,7 @@ class EffectFile(web.StaticFileHandler):
 
 class EffectAdd(JsonRequestHandler):
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def get(self, instance):
         uri = self.get_argument('uri')
         x   = float(self.request.arguments.get('x', [0])[0])
@@ -499,7 +499,7 @@ class EffectAdd(JsonRequestHandler):
 
 class EffectRemove(JsonRequestHandler):
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def get(self, instance):
         ok = yield gen.Task(SESSION.web_remove, instance)
         self.write(ok)
@@ -518,21 +518,21 @@ class EffectGet(JsonRequestHandler):
 
 class EffectConnect(JsonRequestHandler):
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def get(self, port_from, port_to):
         ok = yield gen.Task(SESSION.web_connect, port_from, port_to)
         self.write(ok)
 
 class EffectDisconnect(JsonRequestHandler):
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def get(self, port_from, port_to):
         ok = yield gen.Task(SESSION.web_disconnect, port_from, port_to)
         self.write(ok)
 
 class EffectParameterAddress(JsonRequestHandler):
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def post(self, port):
         data = json.loads(self.request.body.decode("utf-8", errors="ignore"))
         uri  = data.get('uri', None)
@@ -552,7 +552,7 @@ class EffectParameterAddress(JsonRequestHandler):
 
 class EffectPresetLoad(JsonRequestHandler):
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def get(self, instance):
         uri = self.get_argument('uri')
         ok  = yield gen.Task(SESSION.host.preset_load, instance, uri)
@@ -560,7 +560,7 @@ class EffectPresetLoad(JsonRequestHandler):
 
 class EffectPresetSaveNew(JsonRequestHandler):
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def get(self, instance):
         name = self.get_argument('name')
         resp = yield gen.Task(SESSION.host.preset_save_new, instance, name)
@@ -568,7 +568,7 @@ class EffectPresetSaveNew(JsonRequestHandler):
 
 class EffectPresetSaveReplace(JsonRequestHandler):
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def get(self, instance):
         uri    = self.get_argument('uri')
         bundle = self.get_argument('bundle')
@@ -578,7 +578,7 @@ class EffectPresetSaveReplace(JsonRequestHandler):
 
 class EffectPresetDelete(JsonRequestHandler):
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def get(self, instance):
         uri    = self.get_argument('uri')
         bundle = self.get_argument('bundle')
@@ -622,7 +622,7 @@ class ServerWebSocket(websocket.WebSocketHandler):
 
 class PackageUninstall(JsonRequestHandler):
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def post(self):
         bundles = json.loads(self.request.body.decode("utf-8", errors="ignore"))
         error   = ""
@@ -687,7 +687,7 @@ class PedalboardSave(JsonRequestHandler):
 
 class PedalboardPackBundle(web.RequestHandler):
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def get(self):
         # ~/.pedalboards/name.pedalboard/
         bundlepath = os.path.abspath(self.get_argument('bundlepath'))
@@ -754,7 +754,7 @@ class PedalboardPackBundle(web.RequestHandler):
 
 class PedalboardLoadBundle(JsonRequestHandler):
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def post(self):
         bundlepath = os.path.abspath(self.get_argument("bundlepath"))
 
@@ -789,7 +789,7 @@ class PedalboardLoadWeb(SimpleFileReceiver):
     destination_dir = "/tmp/pedalboards"
 
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def process_file(self, data, callback=lambda:None):
         filename = os.path.join(self.destination_dir, data['filename'])
 
@@ -840,7 +840,7 @@ class PedalboardImage(web.StaticFileHandler):
 
 class PedalboardImageGenerate(JsonRequestHandler):
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def get(self):
         bundlepath = os.path.abspath(self.get_argument('bundlepath'))
         ok, ctime  = yield gen.Task(SESSION.screenshot_generator.schedule_screenshot, bundlepath)
@@ -860,7 +860,7 @@ class PedalboardImageCheck(JsonRequestHandler):
 
 class PedalboardImageWait(JsonRequestHandler):
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def get(self):
         bundlepath = os.path.abspath(self.get_argument('bundlepath'))
         ok, ctime  = yield gen.Task(SESSION.screenshot_generator.wait_for_pending_jobs, bundlepath)
@@ -876,7 +876,7 @@ class PedalboardPresetEnable(JsonRequestHandler):
 
 class PedalboardPresetDisable(JsonRequestHandler):
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def post(self):
         yield gen.Task(SESSION.host.pedalpreset_disable)
         self.write(True)
@@ -895,6 +895,13 @@ class PedalboardPresetSaveAs(JsonRequestHandler):
             'ok': idx is not None,
             'id': idx
         })
+
+class PedalboardPresetRename(JsonRequestHandler):
+    def get(self):
+        idx   = int(self.get_argument('id'))
+        title = self.get_argument('title')
+        ok    = SESSION.host.pedalpreset_rename(idx, title)
+        self.write(ok)
 
 class PedalboardPresetRemove(JsonRequestHandler):
     def get(self):
@@ -919,7 +926,7 @@ class PedalboardPresetName(JsonRequestHandler):
 
 class PedalboardPresetLoad(JsonRequestHandler):
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def get(self):
         idx = int(self.get_argument('id'))
         # FIXME: callback invalid?
@@ -928,7 +935,7 @@ class PedalboardPresetLoad(JsonRequestHandler):
 
 class DashboardClean(JsonRequestHandler):
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def get(self):
         ok = yield gen.Task(SESSION.reset)
         self.write(ok)
@@ -953,7 +960,15 @@ class BankLoad(JsonRequestHandler):
 
         # Put the full pedalboard info into banks
         for bank in banks:
-            bank['pedalboards'] = [pedalboards_data[os.path.abspath(pb['bundle'])] for pb in bank['pedalboards']]
+            bank_pedalboards = []
+            for pb in bank['pedalboards']:
+                bundle = os.path.abspath(pb['bundle'])
+                try:
+                    pbdata = pedalboards_data[bundle]
+                except KeyError:
+                    continue
+                bank_pedalboards.append(pbdata)
+            bank['pedalboards'] = bank_pedalboards
 
         # All set
         self.write(banks)
@@ -1021,7 +1036,7 @@ class TemplateHandler(web.RequestHandler):
         with open(DEFAULT_SETTINGS_TEMPLATE, 'r') as fh:
             default_settings_template = squeeze(fh.read().replace("'", "\\'"))
 
-        pbname = xhtml_escape(SESSION.host.pedalboard_name)
+        pbname = SESSION.host.pedalboard_name
         prname = SESSION.host.pedalpreset_name()
 
         fullpbname = pbname or "Untitled"
@@ -1038,14 +1053,14 @@ class TemplateHandler(web.RequestHandler):
             'version': self.get_argument('v'),
             'lv2_plugin_dir': LV2_PLUGIN_DIR,
             'bundlepath': SESSION.host.pedalboard_path,
-            'title':  pbname,
+            'title':  squeeze(pbname.replace("'", "\\'")),
             'size': json.dumps(SESSION.host.pedalboard_size),
-            'fulltitle':  fullpbname,
+            'fulltitle':  xhtml_escape(fullpbname),
             'titleblend': '' if SESSION.host.pedalboard_name else 'blend',
             'using_app': 'true' if APP else 'false',
             'using_mod': 'true' if DEVICE_KEY else 'false',
-            'user_name': xhtml_escape(user_id.get("name", "")),
-            'user_email': xhtml_escape(user_id.get("email", "")),
+            'user_name': squeeze(user_id.get("name", "").replace("'", "\\'")),
+            'user_email': squeeze(user_id.get("email", "").replace("'", "\\'")),
             'favorites': json.dumps(gState.favorites),
             'preferences': json.dumps(prefs),
         }
@@ -1099,7 +1114,7 @@ class BulkTemplateLoader(web.RequestHandler):
 
 class Ping(JsonRequestHandler):
     @web.asynchronous
-    @gen.coroutine
+    @gen.engine
     def get(self):
         start  = end = time.time()
         online = yield gen.Task(SESSION.web_ping)
@@ -1395,6 +1410,7 @@ application = web.Application(
             (r"/pedalpreset/disable", PedalboardPresetDisable),
             (r"/pedalpreset/save", PedalboardPresetSave),
             (r"/pedalpreset/saveas", PedalboardPresetSaveAs),
+            (r"/pedalpreset/rename", PedalboardPresetRename),
             (r"/pedalpreset/remove", PedalboardPresetRemove),
             (r"/pedalpreset/list", PedalboardPresetList),
             (r"/pedalpreset/name", PedalboardPresetName),

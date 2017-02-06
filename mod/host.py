@@ -331,7 +331,6 @@ class Host(object):
 
     def addr_task_addressing(self, atype, actuator, data, callback):
         if atype == Addressings.ADDRESSING_TYPE_HMI:
-            self.pedalboard_modified = True
             return self.hmi.control_add(data['instance_id'],
                                         data['port'],
                                         data['label'],
@@ -349,25 +348,25 @@ class Host(object):
 
         if atype == Addressings.ADDRESSING_TYPE_CC:
             print("cc_map %d %s %d %d" % (data['instance_id'], data['port'], actuator[0], actuator[1]))
-            return self.send_modified("cc_map %d %s %d %d" % (data['instance_id'],
-                                                              data['port'],
-                                                              #data['label'], # TODO
-                                                              #data['value'],
-                                                              #data['minimum'],
-                                                              #data['maximum'],
-                                                              #data['steps'],
-                                                              actuator[0], actuator[1],
-                                                              #data['options'],
-                                                              ), callback, datatype='boolean')
+            return self.send_notmodified("cc_map %d %s %d %d" % (data['instance_id'],
+                                                                 data['port'],
+                                                                 #data['label'], # TODO
+                                                                 #data['value'],
+                                                                 #data['minimum'],
+                                                                 #data['maximum'],
+                                                                 #data['steps'],
+                                                                 actuator[0], actuator[1],
+                                                                 #data['options'],
+                                                                 ), callback, datatype='boolean')
 
         if atype == Addressings.ADDRESSING_TYPE_MIDI:
-            return self.send_modified("midi_map %d %s %i %i %f %f" % (data['instance_id'],
-                                                                      data['port'],
-                                                                      data['midichannel'],
-                                                                      data['midicontrol'],
-                                                                      data['minimum'],
-                                                                      data['maximum'],
-                                                                      ), callback, datatype='boolean')
+            return self.send_notmodified("midi_map %d %s %i %i %f %f" % (data['instance_id'],
+                                                                         data['port'],
+                                                                         data['midichannel'],
+                                                                         data['midicontrol'],
+                                                                         data['minimum'],
+                                                                         data['maximum'],
+                                                                         ), callback, datatype='boolean')
 
         print("ERROR: Invalid addressing requested for", actuator)
         callback(False)
@@ -685,17 +684,21 @@ class Host(object):
                 minimum     = float(msg[6])
                 maximum     = float(msg[7])
 
-                instance = self.mapper.get_instance(instance_id)
+                instance   = self.mapper.get_instance(instance_id)
+                pluginData = self.plugins[instance_id]
 
                 if portsymbol == ":bypass":
-                    self.plugins[instance_id]['bypassCC'] = (channel, controller)
-                    self.plugins[instance_id]['bypassed'] = bool(value)
+                    pluginData['bypassCC'] = (channel, controller)
+                    pluginData['bypassed'] = bool(value)
                 else:
-                    self.plugins[instance_id]['midiCCs'][portsymbol] = (channel, controller, minimum, maximum)
-                    self.plugins[instance_id]['ports'][portsymbol] = value
+                    pluginData['midiCCs'][portsymbol] = (channel, controller, minimum, maximum)
+                    pluginData['ports'][portsymbol] = value
 
                 self.pedalboard_modified = True
-                self.addressings.add_midi(instance_id, portsymbol, channel, controller, minimum, maximum)
+                pluginData['addressings'][portsymbol] = self.addressings.add_midi(instance_id,
+                                                                                  portsymbol,
+                                                                                  channel, controller,
+                                                                                  minimum, maximum)
 
                 self.msg_callback("midi_map %s %s %i %i %f %f" % (instance, portsymbol,
                                                                   channel, controller,
@@ -860,7 +863,8 @@ class Host(object):
             if alias:
                 title = alias.split("-",5)[-1].replace("-","_").replace(";",".")
             else:
-                title = name.split(":",1)[-1].title().replace(" ","_")
+                title = name.split(":",1)[-1].title()
+            title = title.replace(" ","_")
             websocket.write_message("add_hw_port /graph/%s midi 0 %s %i" % (name.split(":",1)[-1], title, i+1))
 
         # MIDI Out
@@ -876,7 +880,8 @@ class Host(object):
             if alias:
                 title = alias.split("-",5)[-1].replace("-","_").replace(";",".")
             else:
-                title = name.split(":",1)[-1].title().replace(" ","_")
+                title = name.split(":",1)[-1].title()
+            title = title.replace(" ","_")
             websocket.write_message("add_hw_port /graph/%s midi 1 %s %i" % (name.split(":",1)[-1], title, i+1))
 
         instances = {
@@ -1380,6 +1385,13 @@ class Host(object):
         self.pedalboard_preset = len(self.pedalboard_presets)-1
         return self.pedalboard_preset
 
+    def pedalpreset_rename(self, idx, title):
+        if idx >= len(self.pedalboard_presets):
+            return False
+
+        self.pedalboard_presets[idx]['name'] = title
+        return True
+
     def pedalpreset_remove(self, idx):
         if idx >= len(self.pedalboard_presets):
             return False
@@ -1404,6 +1416,13 @@ class Host(object):
             pluginData  = self.plugins[instance_id]
             diffBypass  = pluginData['bypassed'] != data['bypassed']
 
+            if diffBypass:
+                addressing = pluginData['addressings'].get(":bypass", None)
+                if addressing is not None:
+                    addressing['value'] = 1.0 if data['bypassed'] else 0.0
+                    if addressing['actuator_uri'] not in used_actuators:
+                        used_actuators.append(addressing['actuator_uri'])
+
             # if bypassed, do it now
             if diffBypass and data['bypassed']:
                 self.msg_callback("param_set %s :bypass 1.0" % (instance,))
@@ -1412,6 +1431,12 @@ class Host(object):
             if data['preset'] and data['preset'] != pluginData['preset']:
                 self.msg_callback("preset %s %s" % (instance, data['preset']))
                 yield gen.Task(self.preset_load, instance, data['preset'])
+
+                addressing = pluginData['addressings'].get(":presets", None)
+                if addressing is not None:
+                    addressing['value'] = pluginData['mapPresets'].index(data['preset'])
+                    if addressing['actuator_uri'] not in used_actuators:
+                        used_actuators.append(addressing['actuator_uri'])
 
             for symbol, value in data['ports'].items():
                 if value == pluginData['ports'][symbol]:
@@ -2283,7 +2308,7 @@ _:b%i
             callback(False)
             return
 
-        # MIDI learn is not saved on disk until a MIDI controller is moved.
+        # MIDI learn is not saved until a MIDI controller is moved.
         # So we need special casing for unlearn.
         if actuator_uri == kMidiUnlearnURI:
             print("MIDI learn canceled")
@@ -2324,6 +2349,7 @@ _:b%i
         pluginData['addressings'][portsymbol] = addressing
         print("addressed as", addressing)
 
+        self.pedalboard_modified = True
         self.addressings.load_addr(actuator_uri, addressing, callback)
 
     # -----------------------------------------------------------------------------------------------------------------
@@ -2712,6 +2738,7 @@ _:b%i
     def set_midi_devices(self, newDevs):
         def add_port(name, title, isOutput):
             index = int(name[-1])
+            title = title.replace("-","_").replace(" ","_")
 
             if name.startswith("nooice"):
                 index += 100

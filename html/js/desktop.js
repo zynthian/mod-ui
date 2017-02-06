@@ -28,6 +28,7 @@ function Desktop(elements) {
         midiPortsList: $('<div>'),
         pedalPresetsWindow: $('<div>'),
         pedalPresetsList: $('<div>'),
+        pedalPresetsOverlay: $('<div>'),
         saveBox: $('<div>'),
         saveButton: $('<div>'),
         saveAsButton: $('<div>'),
@@ -178,7 +179,11 @@ function Desktop(elements) {
     this.pedalPresets = new PedalboardPresetsManager({
         pedalPresetsWindow: elements.pedalPresetsWindow,
         pedalPresetsList: elements.pedalPresetsList,
+        pedalPresetsOverlay: elements.pedalPresetsOverlay,
         hardwareManager: self.hardwareManager,
+        renamedCallback: function (name) {
+            self.titleBox.text((self.title || 'Untitled') + " - " + name)
+        }
     })
 
     this.isApp = false
@@ -242,6 +247,7 @@ function Desktop(elements) {
     this.pedalboardListFunction = function (callback) {
         if (self.previousPedalboardList != null && callback) {
             callback(self.previousPedalboardList)
+            return
         }
 
         $.ajax({
@@ -1483,16 +1489,16 @@ Desktop.prototype.saveCurrentPedalboard = function (asNew, callback) {
                 return
             }
 
-            self.title = title
-            self.pedalboardBundle = errorOrPath
-            self.pedalboardEmpty = false
-            self.pedalboardModified = false
-
-            if (asNew) {
+            if (asNew || ! self.title) {
                 self.titleBox.text(title)
                 self.titleBox.removeClass("blend");
                 self.previousPedalboardList = null
             }
+
+            self.title = title
+            self.pedalboardBundle = errorOrPath
+            self.pedalboardEmpty = false
+            self.pedalboardModified = false
 
             new Notification("info", sprintf('Pedalboard "%s" saved', title), 2000)
 

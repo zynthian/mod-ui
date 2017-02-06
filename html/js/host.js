@@ -279,6 +279,10 @@ $('document').ready(function() {
             var name     = data[4].replace(/_/g," ")
             var index    = parseInt(data[5])
 
+            if (data.length > 6) {
+                console.log("FIXME: received add_hw_port with spaces:", data)
+            }
+
             if (isOutput) {
                 var el = $('<div id="' + instance + '" class="hardware-output" mod-port-index=' + index + ' title="Hardware ' + name + '">')
                 desktop.pedalboard.pedalboard('addHardwareOutput', el, instance, type)
@@ -296,6 +300,18 @@ $('document').ready(function() {
         if (cmd == "remove_hw_port") {
             var port = data[1]
             desktop.pedalboard.pedalboard('removeItemFromCanvas', port)
+            return
+        }
+
+        if (cmd == "hw_add") {
+            var metadata = JSON.parse(atob(data[1]))
+            desktop.hardwareManager.addActuator(metadata)
+            return
+        }
+
+        if (cmd == "hw_remove") {
+            var uri = data[1]
+            desktop.hardwareManager.removeActuator(uri)
             return
         }
 
