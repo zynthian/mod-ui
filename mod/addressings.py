@@ -6,6 +6,7 @@ import os
 
 from tornado import gen
 from mod import get_hardware_actuators, safe_json_load
+from mod.control_chain import ControlChainDeviceListener
 from mod.utils import get_plugin_info, get_plugin_control_inputs_and_monitored_outputs
 
 HMI_ADDRESSING_TYPE_LINEAR       = 0
@@ -46,35 +47,25 @@ class Addressings(object):
         self._task_get_plugin_presets = None
         self._task_get_port_value = None
         self._task_store_address_data = None
+        self._task_hw_added = None
+        self._task_act_added = None
+        self._task_act_removed = None
 
-        # TODO: remove this
-        if os.getenv("CONTROL_CHAIN_TEST"):
-            dev_label = "footex"
-            dev_id    = 1
-
-            for actuator_id in range(4):
-                actuator_uri  = "/cc/%d/%d" % (dev_id, actuator_id)
-                actuator_name = "Footex %d:%d" % (dev_id, actuator_id+1),
-
-                self.cc_addressings[actuator_uri] = []
-                self.cc_metadata[actuator_uri] = {
-                    'hw_id': (dev_id, actuator_id),
-                    'name' : actuator_name,
-                    'modes': ":trigger:toggled:",
-                    'steps': [],
-                    'max_assigns': 1,
-                }
+        self.cchain = ControlChainDeviceListener(self.cc_hardware_added,
+                                                 self.cc_actuator_added, self.cc_actuator_removed)
 
     # -----------------------------------------------------------------------------------------------------------------
 
     # initialize (clear) all addressings
     def init(self):
+        self.hw_actuators = get_hardware_actuators()
+
         # 'hmi_addressings' uses a structure like this:
         # "/hmi/knob1": {'addrs': [...], 'idx': 0}
         # so per actuator we get:
         #  - 'addrs': list of addressings
         #  - 'idx'  : currently selected addressing (index)
-        self.hmi_addressings = dict((act['uri'], {'addrs': [], 'idx': -1}) for act in get_hardware_actuators())
+        self.hmi_addressings = dict((act['uri'], {'addrs': [], 'idx': -1}) for act in self.hw_actuators)
 
         self.cc_addressings = {}
         self.cc_metadata = {}
@@ -95,10 +86,16 @@ class Addressings(object):
             self.hmi_uri2hw_map[knob_uri] = knob_hw
             self.hmi_uri2hw_map[foot_uri] = foot_hw
 
+    # clear all addressings, leaving metadata intact
+    def clear(self):
+        self.hmi_addressings  = dict((key, {'addrs': [], 'idx': -1}) for key in self.hmi_addressings.keys())
+        self.cc_addressings   = dict((key, []) for key in self.cc_addressings.keys())
+        self.midi_addressings = {}
+
     # -----------------------------------------------------------------------------------------------------------------
 
     def get_actuators(self):
-        actuators = get_hardware_actuators()
+        actuators = self.hw_actuators.copy()
 
         for uri, data in self.cc_metadata.items():
             actuators.append({
@@ -156,9 +153,11 @@ class Addressings(object):
 
         used_actuators = []
 
+        yield gen.Task(self.cchain.wait_initialized)
+
         for actuator_uri, addrs in data.items():
             for addr in addrs:
-                instance   = addr['instance']
+                instance   = addr['instance'].replace("/graph/","",1)
                 portsymbol = addr['port']
 
                 try:
@@ -198,7 +197,7 @@ class Addressings(object):
             addrs2 = []
             for addr in addrs['addrs']:
                 addrs2.append({
-                    'instance': instances[addr['instance_id']],
+                    'instance': instances[addr['instance_id']].replace("/graph/","",1),
                     'port'    : addr['port'],
                     'label'   : addr['label'],
                     'minimum' : addr['minimum'],
@@ -353,6 +352,7 @@ class Addressings(object):
         elif actuator_type == self.ADDRESSING_TYPE_CC:
             if actuator_uri not in self.cc_addressings.keys():
                 print("ERROR: Can't load addressing for unavailable hardware '%s'" % actuator_uri)
+                print(self.cc_addressings.keys())
                 return None
 
             addressings = self.cc_addressings[actuator_uri]
@@ -493,6 +493,29 @@ class Addressings(object):
     # -----------------------------------------------------------------------------------------------------------------
     # Control Chain specific functions
 
+    def cc_hardware_added(self, dev_uri, label, version):
+        self._task_hw_added(dev_uri, label, version)
+
+    def cc_actuator_added(self, dev_id, actuator_id, metadata):
+        actuator_uri = metadata['uri']
+        self.cc_metadata[actuator_uri] = metadata.copy()
+        self.cc_metadata[actuator_uri]['hw_id'] = (dev_id, actuator_id)
+        self.cc_addressings[actuator_uri] = []
+        print(self.cc_addressings.keys())
+        self._task_act_added(metadata)
+
+    def cc_actuator_removed(self, dev_id):
+        removed_actuators = []
+
+        for actuator in self.cc_metadata.values():
+            if actuator['hw_id'][0] == dev_id:
+                removed_actuators.append(actuator['uri'])
+
+        for actuator_uri in removed_actuators:
+            self.cc_metadata.pop(actuator_uri)
+            self.cc_addressings.pop(actuator_uri)
+            self._task_act_removed(actuator_uri)
+
     @gen.coroutine
     def cc_load_all(self, actuator_uri):
         actuator_cc = self.cc_metadata[actuator_uri]['hw_id']
@@ -535,6 +558,13 @@ class Addressings(object):
 
     def create_midi_cc_uri(self, channel, controller):
         return "%sCh.%i_CC#%i" % (kMidiCustomPrefixURI, channel+1, controller)
+
+    def get_midi_cc_from_uri(self, uri):
+        data = uri.replace(kMidiCustomPrefixURI+"Ch.","",1).split("_CC#",1)
+        if len(data) == 2:
+            return (int(data[0])-1, int(data[1]))
+        print("ERROR: get_midi_cc_from_uri() called with invalid uri:", uri)
+        return (-1,-1)
 
     def is_hmi_actuator(self, actuator_uri):
         return actuator_uri.startswith("/hmi/")
