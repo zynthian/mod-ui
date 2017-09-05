@@ -3597,9 +3597,14 @@ class Host(object):
             # if trypath already exists, generate a random bundlepath based on title
             if os.path.exists(trypath):
                 while True:
-                    trypath = os.path.join(lv2path, "%s-%i.pedalboard" % (titlesym, randint(1,99999)))
-                    if os.path.exists(trypath):
+                    backupTrypath = os.path.join(lv2path, ".%s-%i.pedalboard" % (titlesym, randint(1,99999)))
+                    if os.path.exists(backupTrypath):
                         continue
+                    backupfileList = os.listdir(lv2path)
+                    for f in backupfileList:
+                        if f.startswith(".%s" % titlesym):
+                            shutil.rmtree(os.path.join(lv2path,f))
+                    shutil.move(trypath, backupTrypath)
                     bundlepath = trypath
                     break
 
