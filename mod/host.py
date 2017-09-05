@@ -32,6 +32,8 @@ from base64 import b64encode
 from collections import OrderedDict
 from random import randint
 from shutil import rmtree
+from shutil import move
+
 from tornado import gen, iostream, ioloop
 import os, json, socket, logging
 
@@ -1861,9 +1863,14 @@ class Host(object):
             # if trypath already exists, generate a random bundlepath based on title
             if os.path.exists(trypath):
                 while True:
-                    trypath = os.path.join(lv2path, "%s-%i.pedalboard" % (titlesym, randint(1,99999)))
-                    if os.path.exists(trypath):
+                    backupTrypath = os.path.join(lv2path, ".%s-%i.pedalboard" % (titlesym, randint(1,99999)))
+                    if os.path.exists(backupTrypath):
                         continue
+                    backupfileList = os.listdir(lv2path)
+                    for f in backupfileList:
+                        if f.startswith(".%s" % titlesym):
+                            rmtree(os.path.join(lv2path,f))
+                    move(trypath, backupTrypath)
                     bundlepath = trypath
                     break
 
