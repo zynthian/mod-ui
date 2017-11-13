@@ -4,22 +4,28 @@
 import json
 import os
 import socket
-from tornado import gen, iostream
+from tornado import gen, iostream, ioloop
 from mod import symbolify
+
+CC_MODE_TOGGLE  = 0x01
+CC_MODE_TRIGGER = 0x02
+CC_MODE_OPTIONS = 0x04
+CC_MODE_REAL    = 0x10
+CC_MODE_INTEGER = 0x20
 
 # ---------------------------------------------------------------------------------------------------------------------
 
 class ControlChainDeviceListener(object):
     socket_path = "/tmp/control-chain.sock"
 
-    def __init__(self, hw_added_cb, act_added_cb, act_removed_cb):
+    def __init__(self, hw_added_cb, hw_removed_cb, act_added_cb):
         self.crashed        = False
         self.idle           = False
         self.initialized    = False
         self.initialized_cb = None
         self.hw_added_cb    = hw_added_cb
+        self.hw_removed_cb  = hw_removed_cb
         self.act_added_cb   = act_added_cb
-        self.act_removed_cb = act_removed_cb
         self.hw_versions    = {}
         self.write_queue    = []
 
@@ -34,7 +40,6 @@ class ControlChainDeviceListener(object):
             return
 
         self.initialized = False
-        print("cc start socket initializing")
 
         self.socket = iostream.IOStream(socket.socket(socket.AF_UNIX, socket.SOCK_STREAM))
         self.socket.set_close_callback(self.connection_closed)
@@ -59,24 +64,43 @@ class ControlChainDeviceListener(object):
             return
 
         self.initialized_cb = callback
+        ioloop.IOLoop.instance().call_later(10, self.wait_init_timeout)
+
+    def wait_init_timeout(self):
+        if self.initialized:
+            return
+
+        print("Control Chain initialization timed out")
+        self.socket = None
+
+        if self.initialized_cb is not None:
+            cb = self.initialized_cb
+            self.initialized_cb = None
+            cb()
 
     # -----------------------------------------------------------------------------------------------------------------
 
     def connection_started(self):
-        print("cc started")
         if len(self.write_queue):
             self.process_write_queue()
         else:
             self.idle = True
 
     def connection_closed(self):
-        print("cc closed")
+        print("Control Chain closed")
         self.socket  = None
         self.crashed = True
         self.set_initialized()
 
+        hw_versions = self.hw_versions.copy()
+        self.hw_versions = {}
+        for dev_id, (dev_uri, label, labelsuffix, version) in hw_versions.items():
+            self.hw_removed_cb(dev_id, dev_uri, label+labelsuffix, version)
+
+        ioloop.IOLoop.instance().call_later(2, self.restart_if_crashed)
+
     def set_initialized(self):
-        print("cc initialized")
+        print("Control Chain initialized")
         self.initialized = True
 
         if self.initialized_cb is not None:
@@ -94,9 +118,12 @@ class ControlChainDeviceListener(object):
         try:
             data = json.loads(resp[:-1].decode("utf-8", errors="ignore"))
         except:
-            print("ERROR: control-chain read response failed")
+            print("ERROR: Control Chain read response failed")
         else:
-            if data['event'] == "device_status":
+            if 'event' not in data.keys():
+                print("ERROR: Control Chain read response invalid, missing 'event' field", data)
+
+            elif data['event'] == "device_status":
                 data   = data['data']
                 dev_id = data['device_id']
 
@@ -104,11 +131,13 @@ class ControlChainDeviceListener(object):
                     yield gen.Task(self.send_device_descriptor, dev_id)
 
                 else:
-                    self.act_removed_cb(dev_id)
                     try:
-                        self.hw_versions.pop(dev_id)
+                        hw_data = self.hw_versions.pop(dev_id)
                     except KeyError:
-                        pass
+                        print("ERROR: Control Chain device removed, but not on current list!?", dev_id)
+                    else:
+                        dev_uri, label, labelsuffix, version = hw_data
+                        self.hw_removed_cb(dev_id, dev_uri, label+labelsuffix, version)
 
         finally:
             self.process_read_queue()
@@ -132,11 +161,15 @@ class ControlChainDeviceListener(object):
                     data = json.loads(resp[:-1].decode("utf-8", errors="ignore"))
                 except:
                     data = None
-                    print("ERROR: control-chain write response failed")
+                    print("ERROR: Control Chain write response failed")
                 else:
-                    if data is not None and data['reply'] != request_name:
-                        print("ERROR: control-chain reply name mismatch")
-                        data = None
+                    if data is not None:
+                        if 'reply' not in data.keys():
+                            print("ERROR: Control Chain write response invalid, missing 'reply' field", data)
+                            data = None
+                        elif data['reply'] != request_name:
+                            print("ERROR: Control Chain reply name mismatch")
+                            data = None
 
                 if data is not None:
                     callback(data['data'])
@@ -150,7 +183,6 @@ class ControlChainDeviceListener(object):
     # -----------------------------------------------------------------------------------------------------------------
 
     def send_request(self, request_name, request_data, callback=None):
-        print("cc send_request", request_name, request_data)
 
         request = {
             'request': request_name,
@@ -167,8 +199,6 @@ class ControlChainDeviceListener(object):
 
     @gen.coroutine
     def device_list_init(self, dev_list):
-        print("cc device_list_init", dev_list)
-
         for dev_id in dev_list:
             yield gen.Task(self.send_device_descriptor, dev_id)
 
@@ -180,44 +210,56 @@ class ControlChainDeviceListener(object):
     # -----------------------------------------------------------------------------------------------------------------
 
     def send_device_descriptor(self, dev_id, callback):
-        print("cc send_device_descriptor", dev_id)
-
         def dev_desc_cb(dev):
-            print("cc send_device_descriptor RESP", dev_id, dev)
+            dev_uri = dev['uri']
 
-            # FIXME
-            slabel  = symbolify(dev['label'])
-            dev_uri = "/cc/" + slabel
-            self.hw_added_cb(dev_uri, slabel, dev['version'])
-            self.hw_versions[dev_id] = (dev_uri, slabel, dev['version'])
+            if " " in dev_uri or "<" in dev_uri or ">" in dev_uri:
+                print("WARNING: Control Chain device URI '%s' is invalid" % dev_uri)
+                callback()
+                return
+
+            # assign an unique id starting from 0
+            dev_unique_id = 0
+            for _dev_uri, _1, _2, _3 in self.hw_versions.values():
+                if _dev_uri == dev_uri:
+                    dev_unique_id += 1
+
+            if dev_unique_id != 0:
+                dev_label_suffix = " " + str(dev_unique_id+1)
+            else:
+                dev_label_suffix = ""
+
+            self.hw_added_cb(dev_id, dev_uri, dev['label'], dev_label_suffix, dev['version'])
+            self.hw_versions[dev_id] = (dev_uri, dev['label'], dev_label_suffix, dev['version'])
 
             for actuator in dev['actuators']:
                 modes_int = actuator['supported_modes']
                 modes_str = ""
 
-                # FIXME use real values
-                if modes_int & 1:
+                if modes_int & CC_MODE_TOGGLE:
                     modes_str += ":bypass:toggled"
-                if modes_int & 2:
+                if modes_int & CC_MODE_TRIGGER:
                     modes_str += ":trigger"
+                if modes_int & CC_MODE_OPTIONS:
+                    modes_str += ":enumeration"
+                if modes_int & CC_MODE_REAL:
+                    modes_str += ":float"
+                if modes_int & CC_MODE_INTEGER:
+                    modes_str += ":integer"
 
                 if not modes_str:
                     continue
 
                 modes_str += ":"
 
-                # FIXME proper URI
-                uri = "%s-%i/%i" % (dev_uri, dev_id, actuator['id'])
-
                 metadata = {
-                    'uri'  : uri,
-                    'name' : actuator['name'],
+                    'uri'  : "%s:%i:%i" % (dev_uri, dev_unique_id, actuator['id']),
+                    'name' : "%s%s:%s" % (dev['label'], dev_label_suffix, actuator['name']),
                     'modes': modes_str,
                     'steps': [],
                     'max_assigns': actuator['max_assignments']
                 }
                 self.act_added_cb(dev_id, actuator['id'], metadata)
-                print("cc added", metadata)
 
             callback()
 
@@ -229,15 +271,15 @@ if __name__ == "__main__":
     from tornado.web import Application
     from tornado.ioloop import IOLoop
 
-    def hw_added_cb(dev_uri, label, version):
-        print("hw_added_cb", dev_uri, label, version)
+    def hw_added_cb(dev_id, dev_uri, label, labelsuffix, version):
+        print("hw_added_cb", dev_uri, label, labelsuffix, version)
+
+    def hw_removed_cb(dev_id, dev_uri, label, version):
+        print("hw_removed_cb", dev_id)
 
     def act_added_cb(dev_id, actuator_id, metadata):
         print("act_added_cb", dev_id, actuator_id, metadata)
 
-    def act_removed_cb(dev_id):
-        print("act_removed_cb", dev_id)
-
     application = Application()
-    cc = ControlChainDeviceListener(hw_added_cb, act_added_cb, act_removed_cb)
+    cc = ControlChainDeviceListener(hw_added_cb, hw_removed_cb, act_added_cb)
     IOLoop.instance().start()

@@ -29,6 +29,7 @@ function Desktop(elements) {
         pedalPresetsWindow: $('<div>'),
         pedalPresetsList: $('<div>'),
         pedalPresetsOverlay: $('<div>'),
+        updateDeviceWindow: $('<div>'),
         saveBox: $('<div>'),
         saveButton: $('<div>'),
         saveAsButton: $('<div>'),
@@ -38,6 +39,12 @@ function Desktop(elements) {
         presetSaveAsButton: $('<div>'),
         presetManageButton: $('<div>'),
         presetDisableButton: $('<div>'),
+        transportButton: $('<div>'),
+        transportWindow: $('<div>'),
+        transportPlay: $('<div>'),
+        transportBPB: $('<div>'),
+        transportBPM: $('<div>'),
+        transportSyncMode: $('<div>'),
         effectBox: $('<div>'),
         effectBoxTrigger: $('<div>'),
         cloudPluginBox: $('<div>'),
@@ -53,6 +60,8 @@ function Desktop(elements) {
         shareButton: $('<div>'),
         shareWindow: $('<div>'),
         presetSaveBox: $('<div>'),
+        devicesIcon: $('<div>'),
+        devicesWindow: $('<div>'),
         statusIcon: $('<div>'),
         upgradeIcon: $('<div>'),
         upgradeWindow: $('<div>'),
@@ -114,8 +123,11 @@ function Desktop(elements) {
         })
     };
     this.getPedalboardHref = function(uri) {
+        if (!this.pedalboardStatsSuccess) {
+            return null;
+        }
         var base64Uri = btoa(uri);
-        if (!this.pedalboardStatsSuccess || !this.pedalboardStats[base64Uri]) {
+        if (!this.pedalboardStats[base64Uri]) {
             return null;
         }
         var encodedUri = encodeURIComponent(uri);
@@ -134,10 +146,16 @@ function Desktop(elements) {
                 type: 'POST',
                 data: JSON.stringify(addressing),
                 success: function (resp) {
-                    callback(resp)
+                    if (resp) {
+                        self.pedalboardModified = true
+                        callback(true)
+                    } else {
+                        new Bug("Couldn't address parameter, not allowed")
+                        callback(false)
+                    }
                 },
                 error: function () {
-                    new Bug("Couldn't address parameter")
+                    new Bug("Couldn't address parameter, server error")
                     callback(false)
                 },
                 cache: false,
@@ -146,6 +164,7 @@ function Desktop(elements) {
         },
         setEnabled: function (instance, portSymbol, enabled) {
             if (instance == "/pedalboard") {
+                self.transportControls.setControlEnabled(portSymbol, enabled)
                 return
             }
             self.pedalboard.pedalboard('setPortEnabled', instance, portSymbol, enabled)
@@ -156,14 +175,13 @@ function Desktop(elements) {
             if (instance == "/pedalboard") {
                 label = "Pedalboard"
             } else {
-                var plugin = self.pedalboard.pedalboard('getGui', instance).effect
-                label = plugin.label
+                label = self.pedalboard.pedalboard('getLabel', instance)
             }
 
             if (port.symbol == ':bypass' || port.symbol == ':presets') {
                 context = {
                     label: label,
-                    name: port.symbol == ':bypass' ? "Bypass" : "Presets"
+                    name: port.symbol == ':bypass' ? "On/Off" : "Presets"
                 }
                 return Mustache.render(TEMPLATES.bypass_addressing, context)
             }
@@ -219,7 +237,7 @@ function Desktop(elements) {
     }
 
     elements.pedalboardTrigger.click(function () {
-        self.windowManager.closeWindows()
+        self.windowManager.closeWindows(null, true)
     })
 
     this.titleBox = elements.titleBox
@@ -426,6 +444,99 @@ function Desktop(elements) {
         })
     }
 
+    elements.devicesIcon.statusTooltip()
+    this.ccDeviceManager = new ControlChainDeviceManager({
+        devicesIcon: elements.devicesIcon,
+        devicesWindow: elements.devicesWindow,
+        updateInfoWindow: elements.updateDeviceWindow,
+        setIconTooltip: function (msg) {
+            elements.devicesIcon.statusTooltip('message', msg, true)
+        },
+        showNotification: function (msg) {
+            if (! self.loadingPeldaboardForFirstTime) {
+                new Notification('info', msg, 5000)
+            }
+        },
+        cancelDownload: function (callback) {
+            $.ajax({
+                url: '/controlchain/cancel/',
+                type: 'POST',
+                success: function () {
+                    callback()
+                },
+                error: function () {
+                    callback()
+                },
+                cache: false,
+                dataType: 'json'
+            })
+        },
+    })
+
+    this.ccDeviceAdded = function (dev_uri, label, labelsuffix, version) {
+        self.ccDeviceManager.deviceAdded(dev_uri, label+labelsuffix, version)
+        self.checkHardwareDeviceVersion(dev_uri, label, version)
+    }
+
+    this.ccDeviceRemoved = function (dev_uri, label, version) {
+        self.ccDeviceManager.deviceRemoved(dev_uri, label, version)
+        elements.upgradeWindow.upgradeWindow('cancelDeviceSetup', dev_uri)
+    }
+
+    this.ccDeviceUpdateFinished = function () {
+        elements.upgradeWindow.upgradeWindow('setUpdated')
+        elements.upgradeWindow.hide()
+        self.ccDeviceManager.hideUpdateWindow()
+        new Notification("info", "Control Chain device firmware update complete!")
+    }
+
+    this.transportControls = new TransportControls({
+        transportButton: elements.transportButton,
+        transportWindow: elements.transportWindow,
+        transportPlay: elements.transportPlay,
+        transportBPB: elements.transportBPB,
+        transportBPM: elements.transportBPM,
+        transportSyncMode: elements.transportSyncMode,
+        openAddressingDialog: function (port, label) {
+            self.hardwareManager.open("/pedalboard", port, label)
+        },
+        unaddressPort: function (portSymbol, callback) {
+            var addressing = {
+                uri    : kNullAddressURI,
+                label  : "",
+                minimum: 0,
+                maximum: 0,
+                value  : 0,
+                steps  : 0,
+            }
+            var instanceAndSymbol = "/pedalboard/" + portSymbol
+
+            $.ajax({
+                url: '/effect/parameter/address/' + instanceAndSymbol,
+                type: 'POST',
+                data: JSON.stringify(addressing),
+                success: function (resp) {
+                    if (resp) {
+                        if (self.hardwareManager.removeHardwareMappping(instanceAndSymbol)) {
+                            new Notification('info', 'BPM addressing removed, incompatible with Link sync mode', 8000)
+                        }
+                        self.pedalboardModified = true
+                        callback(true)
+                    } else {
+                        new Bug("Couldn't address parameter")
+                        callback(false)
+                    }
+                },
+                error: function () {
+                    new Bug("Couldn't address parameter, server error")
+                    callback(false)
+                },
+                cache: false,
+                dataType: 'json'
+            })
+        },
+    })
+
     this.checkHardwareDeviceVersion = function (dev_uri, label, version) {
         if (self.cloudAccessToken == null) {
             self.authenticateDevice(function (ok) {
@@ -447,7 +558,7 @@ function Desktop(elements) {
                         console.log("Notice: failed to get latest device version")
                         return
                     }
-                    if (resp.api_version != 0) {
+                    if (resp.api_version != 1) {
                         return
                     }
 
@@ -484,9 +595,10 @@ function Desktop(elements) {
 
         if (compareVersions(version.split("."), cloudversion.split("."), 3) < 0) {
             data = {
+                'uri': dev_uri,
                 'label': label,
                 'download-url': CONTROLCHAIN_URL + "/file/" + label + cloudversion + ".bin",
-                'release-url': "http://wiki.moddevices.com/wiki/ControlChainReleases#" + label + "," + cloudversion
+                'release-url': "http://wiki.moddevices.com/wiki/Control_Chain_Releases#" + label + "," + cloudversion
             }
             elements.upgradeWindow.upgradeWindow('setupDevice', data)
         }
@@ -537,13 +649,13 @@ function Desktop(elements) {
     }
 
     this.effectBox = self.makeEffectBox(elements.effectBox,
-            elements.effectBoxTrigger)
+                                        elements.effectBoxTrigger)
     this.cloudPluginBox = self.makeCloudPluginBox(elements.cloudPluginBox,
-            elements.cloudPluginBoxTrigger)
+                                                  elements.cloudPluginBoxTrigger)
     this.pedalboardBox = self.makePedalboardBox(elements.pedalboardBox,
-        elements.pedalboardBoxTrigger)
+                                                elements.pedalboardBoxTrigger)
     this.bankBox = self.makeBankBox(elements.bankBox,
-            elements.bankBoxTrigger)
+                                    elements.bankBoxTrigger)
 
     this.getPluginsData = function (uris, callback) {
         $.ajax({
@@ -630,7 +742,7 @@ function Desktop(elements) {
     },
 
     this.loadRemotePedalboard = function (pedalboard_id) {
-        self.windowManager.closeWindows()
+        self.windowManager.closeWindows(null, true)
 
         if (self.cloudAccessToken == null) {
             self.authenticateDevice(function (ok) {
@@ -730,7 +842,7 @@ function Desktop(elements) {
                 },
                 error: function (resp) {
                     self.saveBox.hide()
-                    new Bug("Couldn't save pedalboard")
+                    callback(false, "Couldn't save pedalboard")
                 },
                 cache: false,
                 dataType: 'json'
@@ -778,6 +890,7 @@ function Desktop(elements) {
                 $('#js-preset-menu').show()
                 self.titleBox.text((self.title || 'Untitled') + " - Default")
                 self.pedalboardPresetId = 0
+                self.pedalboardModified = true
             },
             error: function () {
                 new Bug("Failed to activate pedalboard presets")
@@ -797,6 +910,7 @@ function Desktop(elements) {
             method: 'POST',
             success: function () {
                 self.pedalboardPresetId = -1
+                self.pedalboardModified = true
                 self.titleBox.text(self.title || 'Untitled')
                 $('#js-preset-menu').hide()
                 $('#js-preset-enabler').show()
@@ -816,6 +930,7 @@ function Desktop(elements) {
             url: '/pedalpreset/save',
             method: 'POST',
             success: function () {
+                self.pedalboardModified = true
                 new Notification('info', 'Pedalboard preset saved', 2000)
             },
             error: function () {
@@ -826,6 +941,11 @@ function Desktop(elements) {
         })
     })
     elements.presetSaveAsButton.click(function () {
+        var addressed = !!self.hardwareManager.addressingsByPortSymbol['/pedalboard/:presets']
+        if (addressed) {
+            return new Notification("warn", "Cannot change presets while addressed to hardware", 3000)
+        }
+
         desktop.openPresetSaveWindow("", function (newName) {
             $.ajax({
                 url: '/pedalpreset/saveas',
@@ -837,6 +957,7 @@ function Desktop(elements) {
                         return
                     }
                     self.pedalboardPresetId = resp.id
+                    self.pedalboardModified = true
                     self.titleBox.text((self.title || 'Untitled') + " - " + newName)
                     new Notification('info', 'Pedalboard preset saved', 2000)
                 },
@@ -856,6 +977,7 @@ function Desktop(elements) {
         var addressed = !!self.hardwareManager.addressingsByPortSymbol['/pedalboard/:presets']
         self.pedalPresets.start(self.pedalboardPresetId, addressed)
     })
+
     elements.bypassLeftButton.click(function () {
         self.triggerTrueBypass("Left", !$(this).hasClass("bypassed"))
     })
@@ -878,7 +1000,6 @@ function Desktop(elements) {
                 if (! resp.ok) {
                     new Bug("Couldn't set new buffer size")
                 }
-                $("#mod-buffersize").text(""+resp.size+" frames")
             },
             error: function () {
                 new Bug("Communication failure")
@@ -1081,6 +1202,9 @@ function Desktop(elements) {
                 dataType: 'json',
             })
         },
+        startDeviceUpgrade: function () {
+            self.ccDeviceManager.showUpdateWindow()
+        },
     })
 
     var prevent = function (ev) {
@@ -1241,8 +1365,9 @@ Desktop.prototype.makePedalboard = function (el, effectBox) {
             $.ajax({
                 url: '/reset',
                 success: function (resp) {
-                    if (!resp)
+                    if (!resp) {
                         return new Notification('error', "Couldn't reset pedalboard")
+                    }
 
                     self.title = ''
                     self.pedalboardBundle = null
@@ -1250,7 +1375,8 @@ Desktop.prototype.makePedalboard = function (el, effectBox) {
                     self.pedalboardModified = false
                     self.pedalboardPresetId = -1
                     self.titleBox.text('Untitled')
-                    self.titleBox.addClass("blend");
+                    self.titleBox.addClass("blend")
+                    self.transportControls.resetControlsEnabled()
 
                     $('#js-preset-menu').hide()
                     $('#js-preset-enabler').show()
@@ -1265,6 +1391,14 @@ Desktop.prototype.makePedalboard = function (el, effectBox) {
         },
 
         getPluginsData: self.getPluginsData,
+
+        showPluginInfo: function (pluginData) {
+            pluginData.installedVersion = [pluginData.builder,
+                                           pluginData.minorVersion,
+                                           pluginData.microVersion,
+                                           pluginData.release]
+            self.effectBox.effectBox('showPluginInfo', pluginData)
+        },
 
         pluginParameterChange: function (port, value) {
             ws.send(sprintf("param_set %s %f", port, value))
@@ -1301,9 +1435,11 @@ Desktop.prototype.makePedalboard = function (el, effectBox) {
         self.pedalboardEmpty = false
         self.pedalboardModified = true
     })
+    /*
     el.bind('dragStart', function () {
-        self.windowManager.closeWindows()
+        self.windowManager.closeWindows(null, true)
     })
+    */
 
     el.bind('pluginDragStart', function () {
         self.effectBox.addClass('fade')
@@ -1544,7 +1680,7 @@ Desktop.prototype.loadPedalboard = function (bundlepath, callback) {
 Desktop.prototype.saveCurrentPedalboard = function (asNew, callback) {
     var self = this
 
-    if (self.pedalboardEmpty) {
+    if (self.pedalboardEmpty && ! self.pedalboardModified) {
         new Notification('warn', 'Nothing to save', 1500)
         return
     }
@@ -1596,6 +1732,7 @@ JqueryClass('saveBox', {
         }, options)
 
         self.data(options)
+        self.data('disabled', false)
 
         var save = function () {
             self.saveBox('send')
@@ -1604,6 +1741,9 @@ JqueryClass('saveBox', {
 
         self.find('.js-save').click(save).prop('disabled',true)
         self.find('.js-cancel-saving').click(function () {
+            if (self.data('disabled')) {
+                return false
+            }
             self.hide()
             return false
         })
@@ -1611,9 +1751,13 @@ JqueryClass('saveBox', {
             self.find('.js-save').prop('disabled', this.value.length == 0 ? true : false);
         })
         self.keydown(function (e) {
+            if (self.data('disabled')) {
+                return false
+            }
             if (e.keyCode == 13) {
                 return save()
-            } else if (e.keyCode == 27) {
+            }
+            if (e.keyCode == 27) {
                 self.hide()
                 return false
             }
@@ -1647,19 +1791,23 @@ JqueryClass('saveBox', {
         var asNew = self.data('asNew')
 
         if (title.length == 0) {
-            alert("Cannot save with an empty name!")
+            new Bug("Cannot save with an empty name!")
             return
         }
 
+        self.data('disabled', true)
+        self.find('.js-cancel-saving').prop('disabled', true)
+        self.find('.js-save').prop('disabled', true)
         self.data('save')(title, asNew,
             function (ok, errorOrPath, realTitle) {
                 if (! ok) {
-                    // TODO error handling here, the Notification does not work well
-                    // with popup
-                    alert(errorOrPath)
+                    new Bug(errorOrPath)
                 }
 
                 self.hide()
+                self.data('disabled', false)
+                self.find('.js-cancel-saving').prop('disabled', false)
+                self.find('.js-save').prop('disabled', false)
                 self.data('callback')(true, errorOrPath, realTitle)
             })
         return
@@ -1716,7 +1864,7 @@ JqueryClass('statusTooltip', {
         tooltip.show().stop().animate({
             opacity: 1
         }, 200)
-        if (timeout)
+        if (timeout) {
             setTimeout(function () {
                 tooltip.stop().animate({
                         opacity: 0
@@ -1725,6 +1873,7 @@ JqueryClass('statusTooltip', {
                         $(this).hide()
                     })
             }, timeout)
+        }
     },
 
     updatePosition: function() {
@@ -1742,11 +1891,19 @@ function enable_dev_mode(skipSaveConfig) {
     // network and controller ping times
     $('#mod-status').show().statusTooltip('updatePosition')
 
+    // adjust position
+    $('#mod-devices').statusTooltip('updatePosition')
+
     // xrun counter
     $('#mod-xruns').show()
 
     // buffer size button
     $('#mod-buffersize').show()
+
+    // transport parameters
+    $('#mod-transport-window').css({
+        right: '592px'
+    })
 
     if (!skipSaveConfig) {
         // save settings
@@ -1765,11 +1922,19 @@ function disable_dev_mode() {
     // network and controller ping times
     $('#mod-status').hide()
 
+    // adjust position
+    $('#mod-devices').statusTooltip('updatePosition')
+
     // xrun counter
     $('#mod-xruns').hide()
 
     // buffer size button
     $('#mod-buffersize').hide()
+
+    // transport parameters
+    $('#mod-transport-window').css({
+        right: '310px'
+    })
 
     // save settings
     desktop.saveConfigValue("dev-mode", "off")

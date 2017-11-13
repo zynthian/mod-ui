@@ -20,23 +20,43 @@ import os, time, logging, json
 from datetime import timedelta
 from tornado import iostream, ioloop, gen
 
-from mod.settings import (DEV_ENVIRONMENT, DEV_HMI, DEV_HOST,
-                          HMI_SERIAL_PORT, HMI_BAUD_RATE, HOST_CARLA)
+from mod import safe_json_load
 from mod.bank import get_last_bank_and_pedalboard
 from mod.development import FakeHost, FakeHMI
 from mod.hmi import HMI
 from mod.recorder import Recorder, Player
 from mod.screenshot import ScreenshotGenerator
+from mod.settings import (DEV_ENVIRONMENT, DEV_HMI, DEV_HOST,
+                          HMI_SERIAL_PORT, HMI_BAUD_RATE, HOST_CARLA,
+                          PREFERENCES_JSON_FILE)
 
-if HOST_CARLA:
-    from mod.host_carla import Host
+if DEV_HOST:
+    from mod.development import FakeHost as Host
+elif HOST_CARLA:
+    from mod.host_carla import CarlaHost as Host
 else:
     from mod.host import Host
+
+class UserPreferences(object):
+    def __init__(self):
+        self.prefs = safe_json_load(PREFERENCES_JSON_FILE, dict)
+
+    def get(self, key, default):
+        return self.prefs.get(key, default)
+
+    def setAndSave(self, key, value):
+        self.prefs[key] = value
+        self.save()
+
+    def save(self):
+        with open(PREFERENCES_JSON_FILE, 'w') as fh:
+            json.dump(self.prefs, fh)
 
 class Session(object):
     def __init__(self):
         self.ioloop = ioloop.IOLoop.instance()
 
+        self.prefs = UserPreferences()
         self.player = Player()
         self.recorder = Recorder()
         self.recordhandle = None
@@ -59,14 +79,14 @@ class Session(object):
         if not hmiOpened:
             self.hmi = FakeHMI(HMI_SERIAL_PORT, HMI_BAUD_RATE, self.hmi_initialized_cb)
 
-        if DEV_HOST:
-            self.host = FakeHost(self.hmi, self.msg_callback)
-        else:
-            self.host = Host(self.hmi, self.msg_callback)
+        self.host = Host(self.hmi, self.prefs, self.msg_callback)
 
     def signal_save(self):
         # reuse HMI function
         self.host.hmi_save_current_pedalboard(lambda r:None)
+
+    def signal_device_updated(self):
+        self.msg_callback("cc-device-updated")
 
     def signal_disconnect(self):
         sockets = self.websockets
@@ -78,6 +98,9 @@ class Session(object):
 
     def get_hardware_actuators(self):
         return self.host.addressings.get_actuators()
+
+    def wait_for_hardware_if_needed(self, callback):
+        return self.host.addressings.wait_for_cc_if_needed(callback)
 
     # -----------------------------------------------------------------------------------------------------------------
     # App utilities, needed only for mod-app
@@ -270,7 +293,9 @@ class Session(object):
             ws.write_message(msg)
 
     def load_pedalboard(self, bundlepath, isDefault):
+        self.host.send_notmodified("feature_enable processing 0")
         title = self.host.load(bundlepath, isDefault)
+        self.host.send_notmodified("feature_enable processing 1")
         if isDefault:
             bundlepath = ""
             title = ""
@@ -278,8 +303,14 @@ class Session(object):
         return title
 
     def reset(self, callback):
+        self.host.send_notmodified("feature_enable processing 0")
+
+        def host_callback(resp):
+            self.host.send_notmodified("feature_enable processing 1")
+            callback(resp)
+
         def reset_host(ok):
-            self.host.reset(callback)
+            self.host.reset(host_callback)
 
         if self.hmi.initialized:
             def clear_hmi(ok):

@@ -25,12 +25,14 @@ JqueryClass('upgradeWindow', {
             startUpgrade: function (callback) {
                 callback(true)
             },
+            startDeviceUpgrade: function () {},
         }, options)
 
         self.data(options)
         self.data('updatedata', null)
         self.data('updaterequired', false)
         self.data('updatesystem', false)
+        self.data('eggshown', false)
 
         options.icon.statusTooltip()
         options.icon.statusTooltip('message', 'Checking for updates...', true)
@@ -53,7 +55,11 @@ JqueryClass('upgradeWindow', {
                 return
             }
             if ($(this).text() == "Upgrade Now") {
-                self.upgradeWindow('startUpgrade')
+                if (self.data('updatesystem')) {
+                    self.upgradeWindow('startUpgrade')
+                } else {
+                    self.upgradeWindow('startDeviceUpgrade')
+                }
             } else {
                 self.upgradeWindow('downloadStart')
             }
@@ -97,6 +103,7 @@ JqueryClass('upgradeWindow', {
         $(p[0]).html(html)
 
         self.find('a').attr('href', data['release-url'])
+        self.find('button.js-upgrade').text("Download")
 
         self.show()
     },
@@ -122,7 +129,7 @@ JqueryClass('upgradeWindow', {
         self.data('updatedata', data)
         self.data('updaterequired', false)
         self.data('updatesystem', true)
-        icon.statusTooltip('message', "An update is available, click to know details", ignoreUpdate || required, 8000)
+        icon.statusTooltip('message', "An update is available, click to learn more", ignoreUpdate || required, 8000)
         icon.statusTooltip('status', 'update-available')
 
         if (required && ! ignoreUpdate) {
@@ -144,8 +151,29 @@ JqueryClass('upgradeWindow', {
         self.data('updatedata', data)
         self.data('updaterequired', false)
         self.data('updatesystem', false)
-        icon.statusTooltip('message', "A device update is available, click to know details", ignoreUpdate, 8000)
+        icon.statusTooltip('message', "A device update is available, click to learn more", ignoreUpdate, 8000)
         icon.statusTooltip('status', 'update-available')
+    },
+
+    cancelDeviceSetup: function (dev_uri) {
+        var self = $(this)
+
+        if (self.data('updatesystem')) {
+            return
+        }
+
+        var data = self.data('updatedata')
+        if (! data) {
+            return
+        }
+
+        var uri = data['uri']
+        if (! uri || uri != dev_uri) {
+            return
+        }
+
+        self.hide()
+        self.upgradeWindow('setUpdated')
     },
 
     setErrored: function () {
@@ -158,8 +186,9 @@ JqueryClass('upgradeWindow', {
 
     setUpdated: function () {
         var self = $(this)
-        var icon = self.data('icon')
+        self.data('updatedata', null)
 
+        var icon = self.data('icon')
         icon.statusTooltip('message', "System is up-to-date", true)
         icon.statusTooltip('status', 'uptodate')
 
@@ -167,7 +196,8 @@ JqueryClass('upgradeWindow', {
         var d = date.getDay(),
             m = date.getMonth();
 
-        if (m == 12 && (d == 24 || d == 25)) {
+        if (m == 12 && (d == 24 || d == 25) && ! self.data('eggshown')) {
+            self.data('eggshown', true)
             setTimeout(function() {
                 new Notification('warn', 'The MOD Team wishes you happy holidays!', 8000)
             }, 5000)
@@ -183,7 +213,8 @@ JqueryClass('upgradeWindow', {
         self.find('.download-start').show().text("Downloading...")
         self.find('.download-complete').hide()
 
-        var transfer = new SimpleTransference(self.data('updatedata')['download-url'], '/update/download')
+        var transfer = new SimpleTransference(self.data('updatedata')['download-url'],
+                                              self.data('updatesystem') ? '/update/download' : '/controlchain/download')
 
         transfer.reportPercentageStatus = function (percentage) {
             self.find('.progressbar').width(self.find('.progressbar-wrapper').width() * percentage)
@@ -201,10 +232,15 @@ JqueryClass('upgradeWindow', {
             self.find('.download-start').hide()
             self.find('.download-complete').show()
 
-            if (!confirm("The MOD will now be updated. Any unsaved work will be lost. The upgrade can take several minutes, in which you may not be able to play or do anything else. Continue?"))
-                return
-
-            self.upgradeWindow('startUpgrade')
+            if (self.data('updatesystem')) {
+                if (confirm("The MOD will now be updated. Any unsaved work will be lost. "+
+                            "The upgrade can take several minutes, "+
+                            "in which you may not be able to play or do anything else. Continue?")) {
+                    self.upgradeWindow('startUpgrade')
+                }
+            } else {
+                self.upgradeWindow('startDeviceUpgrade')
+            }
         }
 
         transfer.reportError = function (error) {
@@ -228,5 +264,10 @@ JqueryClass('upgradeWindow', {
                 new Bug("Failed to start upgrade")
             }
         })
+    },
+
+    startDeviceUpgrade: function () {
+        var self = $(this)
+        self.data('startDeviceUpgrade')()
     },
 })

@@ -84,6 +84,7 @@ JqueryClass('effectBox', {
 
         var settingsBox = self.find('#plugins-library-settings-window')
         settingsBox.window({
+            windowName: "Plugin Library",
             windowManager: options.windowManager,
             trigger: self.find('.js-settings-trigger')
         })
@@ -264,6 +265,7 @@ JqueryClass('effectBox', {
             'Spatial': 0,
             'Spectral': 0,
             'Utility': 0,
+            'MaxGen': 0,
         }
         var category
         for (i in plugins) {
@@ -284,6 +286,12 @@ JqueryClass('effectBox', {
         for (category in categories) {
             var tab = self.find('#effect-tab-' + category)
             tab.html(tab.html() + ' (' + categories[category] + ')')
+        }
+
+        if (categories[category] == 0) {
+            self.find('#effect-tab-MaxGen').hide()
+        } else {
+            self.find('#effect-tab-MaxGen').show()
         }
 
         // disable navigation while we render plugins
@@ -367,7 +375,7 @@ JqueryClass('effectBox', {
             start: function () {
                 if (self.data('info'))
                     self.data('info').remove()
-                self.data('windowManager').closeWindows()
+                self.data('windowManager').closeWindows(null, true)
                 self.window('fade')
             },
             stop: function () {
@@ -427,6 +435,7 @@ JqueryClass('effectBox', {
                 demo  : plugin.licensed < 0,
                 installed: true,
                 favorite_class: FAVORITES.indexOf(plugin.uri) >= 0 ? "favorite" : "",
+                plugin_href: PLUGINS_URL + '/' + btoa(plugin.uri),
                 pedalboard_href: desktop.getPedalboardHref(plugin.uri),
             };
 
@@ -480,6 +489,7 @@ JqueryClass('effectBox', {
             });
 
             info.window({
+                windowName: "Plugin Info",
                 windowManager: self.data('windowManager'),
                 close: function () {
                     info.remove()
@@ -519,6 +529,8 @@ JqueryClass('effectBox', {
             var content = $(this).html().split(/\s/)
             if (content.length >= 2 && content[1] == "Utility") {
                 $(this).html(content[0] + " Utility")
+            } else if (content.length >= 2 && content[1] == "gen~") {
+                $(this).html(content[0] + " gen~")
             } else {
                 $(this).html(content[0])
             }

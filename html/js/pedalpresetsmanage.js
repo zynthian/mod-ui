@@ -29,17 +29,16 @@ function PedalboardPresetsManager(options) {
         presetCount: 0,
     }, options)
 
-    options.pedalPresetsOverlay.hide().blur(self.pedalPresetRenamed).keydown(function (e) {
-        if (e.keyCode == 13) { // enter
-            return self.pedalPresetRenamed()
-        }
-    })
-
-    options.pedalPresetsWindow.keydown(function (e) {
+    $('body').keydown(function (e) {
         if (e.keyCode == 27) { // esc
             self.hideRenameOverlay()
             options.pedalPresetsWindow.hide()
-            return false
+        }
+    })
+
+    options.pedalPresetsOverlay.hide().blur(self.pedalPresetRenamed).keydown(function (e) {
+        if (e.keyCode == 13) { // enter
+            return self.pedalPresetRenamed()
         }
     })
 
@@ -84,8 +83,8 @@ function PedalboardPresetsManager(options) {
         var selected = options.pedalPresetsList.find('option:selected')
         var selectId = selected.val()
 
-        if (selectId == 0) {
-            return self.prevent(e, "Cannot delete initial preset")
+        if (options.presetCount <= 1) {
+            return self.prevent(e, "Cannot delete last remaining preset")
         } else if (options.currentlyAddressed) {
             return self.prevent(e)
         }
@@ -103,6 +102,7 @@ function PedalboardPresetsManager(options) {
                 options.presetCount -= 1
                 if (options.presetCount <= 1) {
                     options.pedalPresetsWindow.find('.js-assign-all').addClass('disabled')
+                    options.pedalPresetsWindow.find('.js-delete').addClass('disabled')
                 }
             },
             error: function () {},
@@ -161,7 +161,7 @@ function PedalboardPresetsManager(options) {
                 return new Notification("error", "No pedalboard presets available")
             }
 
-            if (options.presetCount == 1) {
+            if (options.presetCount <= 1) {
                 options.pedalPresetsWindow.find('.js-assign-all').addClass('disabled')
             } else {
                 options.pedalPresetsWindow.find('.js-assign-all').removeClass('disabled')
@@ -171,7 +171,11 @@ function PedalboardPresetsManager(options) {
                 options.pedalPresetsWindow.find('.js-delete').addClass('disabled')
                 options.pedalPresetsWindow.find('.js-rename').addClass('disabled')
             } else {
-                options.pedalPresetsWindow.find('.js-delete').removeClass('disabled')
+                if (options.presetCount <= 1) {
+                    options.pedalPresetsWindow.find('.js-delete').addClass('disabled')
+                } else {
+                    options.pedalPresetsWindow.find('.js-delete').removeClass('disabled')
+                }
                 options.pedalPresetsWindow.find('.js-rename').removeClass('disabled')
             }
 
@@ -181,9 +185,6 @@ function PedalboardPresetsManager(options) {
 
                 if (currentId == i && ! options.currentlyAddressed) {
                     elem.prop('selected', 'selected')
-                    if (i == 0) {
-                        options.pedalPresetsWindow.find('.js-delete').addClass('disabled')
-                    }
                 }
 
                 elem.click(self.optionClicked)
@@ -222,12 +223,6 @@ function PedalboardPresetsManager(options) {
         if (options.currentlyAddressed) {
             options.pedalPresetsList.find('option:selected').removeProp('selected')
             return self.prevent(e)
-        }
-
-        if (selectId == 0) {
-            options.pedalPresetsWindow.find('.js-delete').addClass('disabled')
-        } else {
-            options.pedalPresetsWindow.find('.js-delete').removeClass('disabled')
         }
 
         $.ajax({

@@ -29,10 +29,10 @@ def jsoncall(method):
                 self.request.body = json.loads(decoded)
         result = method(self, *args, **kwargs)
         if not result is None:
-            self.set_header('Content-Type', 'application/json')
+            self.set_header('Content-Type', 'application/json; charset=UTF-8')
             self.write(json.dumps(result, default=json_handler))
         else:
-            self.set_header('Content-Type', 'text/plain')
+            self.set_header('Content-Type', 'text/plain; charset=UTF-8')
             self.set_status(204)
     return wrapper
 
@@ -46,7 +46,8 @@ def check_environment():
     from mod.settings import (LV2_PEDALBOARDS_DIR,
                               DEFAULT_PEDALBOARD, DEFAULT_PEDALBOARD_COPY,
                               DATA_DIR, DOWNLOAD_TMP_DIR, KEYS_PATH,
-                              BANKS_JSON_FILE, FAVORITES_JSON_FILE, UPDATE_FILE,
+                              BANKS_JSON_FILE, FAVORITES_JSON_FILE,
+                              UPDATE_CC_FIRMWARE_FILE, UPDATE_MOD_OS_FILE,
                               CAPTURE_PATH, PLAYBACK_PATH)
 
     # create temp dirs
@@ -54,7 +55,7 @@ def check_environment():
         os.makedirs(DOWNLOAD_TMP_DIR)
 
     # remove temp files
-    for path in (CAPTURE_PATH, PLAYBACK_PATH):
+    for path in (CAPTURE_PATH, PLAYBACK_PATH, UPDATE_CC_FIRMWARE_FILE):
         if os.path.exists(path):
             os.remove(path)
 
@@ -89,8 +90,9 @@ def check_environment():
             fh.write("[]")
 
     # remove previous update file
-    if os.path.exists(UPDATE_FILE):
-        os.remove(UPDATE_FILE)
+    if os.path.exists(UPDATE_MOD_OS_FILE):
+        os.remove(UPDATE_MOD_OS_FILE)
+        os.sync()
 
     return True
 
@@ -121,3 +123,20 @@ def get_hardware_actuators():
     mod_hw = safe_json_load("/etc/mod-hardware-descriptor.json", dict)
 
     return mod_hw.get('actuators', [])
+
+class TextFileFlusher(object):
+    def __init__(self, filename):
+        self.filename   = filename
+        self.filehandle = None
+
+    def __enter__(self):
+        self.filehandle = open(self.filename+".tmp", 'w', 1)
+        return self.filehandle
+
+    def __exit__(self, typ, val, tb):
+        if self.filehandle is None:
+            return
+        self.filehandle.flush()
+        os.fsync(self.filehandle)
+        self.filehandle.close()
+        os.rename(self.filename+".tmp", self.filename)

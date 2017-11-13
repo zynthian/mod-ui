@@ -33,16 +33,18 @@ from uuid import uuid4
 
 from mod.settings import (APP, LOG,
                           HTML_DIR, DOWNLOAD_TMP_DIR, DEVICE_KEY, DEVICE_WEBSERVER_PORT,
-                          CLOUD_HTTP_ADDRESS, PEDALBOARDS_HTTP_ADDRESS, CONTROLCHAIN_HTTP_ADDRESS,
+                          CLOUD_HTTP_ADDRESS, PLUGINS_HTTP_ADDRESS, PEDALBOARDS_HTTP_ADDRESS, CONTROLCHAIN_HTTP_ADDRESS,
                           LV2_PLUGIN_DIR, LV2_PEDALBOARDS_DIR, IMAGE_VERSION,
-                          UPDATE_FILE, USING_256_FRAMES_FILE,
+                          UPDATE_CC_FIRMWARE_FILE, UPDATE_MOD_OS_FILE, USING_256_FRAMES_FILE,
                           DEFAULT_ICON_TEMPLATE, DEFAULT_SETTINGS_TEMPLATE, DEFAULT_ICON_IMAGE,
-                          DEFAULT_PEDALBOARD, DATA_DIR, FAVORITES_JSON_FILE, PREFERENCES_JSON_FILE, USER_ID_JSON_FILE)
+                          DEFAULT_PEDALBOARD, DATA_DIR, FAVORITES_JSON_FILE, PREFERENCES_JSON_FILE, USER_ID_JSON_FILE,
+                          DEV_HOST)
 
-from mod import check_environment, jsoncall, safe_json_load
+from mod import check_environment, jsoncall, safe_json_load, TextFileFlusher
 from mod.bank import list_banks, save_banks, remove_pedalboard_from_banks
 from mod.session import SESSION
 from mod.utils import (init as lv2_init,
+                       cleanup as lv2_cleanup,
                        get_plugin_list,
                        get_all_plugins,
                        get_plugin_info,
@@ -146,11 +148,23 @@ def install_bundles_in_tmp_dir(callback):
             'installed': installed,
         }
 
+    os.sync()
     callback(resp)
 
-def install_package(bundlename, callback):
-    filename = os.path.join(DOWNLOAD_TMP_DIR, bundlename)
+def run_command(args, cwd, callback):
+    ioloop = IOLoop.instance()
+    proc   = subprocess.Popen(args, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
+    def end_fileno(fileno, event):
+        ret = proc.poll()
+        if ret is None:
+            return
+        ioloop.remove_handler(fileno)
+        callback((ret,) + proc.communicate())
+
+    ioloop.add_handler(proc.stdout.fileno(), end_fileno, 16)
+
+def install_package(filename, callback):
     if not os.path.exists(filename):
         callback({
             'ok'       : False,
@@ -160,41 +174,51 @@ def install_package(bundlename, callback):
         })
         return
 
-    proc = subprocess.Popen(['tar','zxf', filename],
-                            cwd=DOWNLOAD_TMP_DIR,
-                            stdout=subprocess.PIPE)
-
-    def end_untar_pkgs(fileno, event):
-        if proc.poll() is None:
-            return
-        ioloop.remove_handler(fileno)
+    def end_untar_pkgs(resp):
         os.remove(filename)
         install_bundles_in_tmp_dir(callback)
 
-    ioloop = IOLoop.instance()
-    ioloop.add_handler(proc.stdout.fileno(), end_untar_pkgs, 16)
+    run_command(['tar','zxf', filename], DOWNLOAD_TMP_DIR, end_untar_pkgs)
 
-def move_file(src, dst, callback):
-    proc = subprocess.Popen(['mv', src, dst],
-                            stdout=subprocess.PIPE)
+@gen.coroutine
+def start_restore():
+    os.sync()
+    yield gen.Task(SESSION.hmi.send, "restore", datatype='boolean')
 
-    def end_move(fileno, event):
-        if proc.poll() is None:
-            return
-        ioloop.remove_handler(fileno)
-        callback()
+class TimelessRequestHandler(web.RequestHandler):
+    def compute_etag(self):
+        return None
 
-    ioloop = IOLoop.instance()
-    ioloop.add_handler(proc.stdout.fileno(), end_move, 16)
+    def set_default_headers(self):
+        self._headers.pop("Date")
 
-class JsonRequestHandler(web.RequestHandler):
+    def should_return_304(self):
+        return False
+
+class TimelessStaticFileHandler(web.StaticFileHandler):
+    def get_cache_time(self, path, modified, mime_type):
+        return 0
+
+    def get_modified_time(self):
+        return None
+
+    def set_default_headers(self):
+        self._headers.pop("Date")
+
+    def set_extra_headers(self, path):
+        self.set_header("Cache-Control", "public, max-age=31536000")
+
+    def should_return_304(self):
+        return self.check_etag_header()
+
+class JsonRequestHandler(TimelessRequestHandler):
     def write(self, data):
         # FIXME: something is sending strings out, need to investigate what later..
         # it's likely something using write(json.dumps(...))
         # we want to prevent that as it causes issues under Mac OS
 
         if isinstance(data, (bytes, unicode_type, dict)):
-            web.RequestHandler.write(self, data)
+            TimelessRequestHandler.write(self, data)
             self.finish()
             return
 
@@ -216,7 +240,7 @@ class JsonRequestHandler(web.RequestHandler):
             data = json.dumps(data)
             self.set_header("Content-Type", "application/json; charset=UTF-8")
 
-        web.RequestHandler.write(self, data)
+        TimelessRequestHandler.write(self, data)
         self.finish()
 
 class RemoteRequestHandler(JsonRequestHandler):
@@ -243,8 +267,6 @@ class SimpleFileReceiver(JsonRequestHandler):
     def urls(cls, path):
         return [
             (r"/%s/$" % path, cls),
-            #(r"/%s/([a-f0-9]{32})/(\d+)$" % path, cls),
-            #(r"/%s/([a-f0-9]{40})/(finish)$" % path, cls),
         ]
 
     @web.asynchronous
@@ -253,57 +275,295 @@ class SimpleFileReceiver(JsonRequestHandler):
         # self.result can be set by subclass in process_file,
         # so that answer will be returned to browser
         self.result = None
-        name = str(uuid4())
+        basename = str(uuid4())
         if not os.path.exists(self.destination_dir):
             os.mkdir(self.destination_dir)
-        with open(os.path.join(self.destination_dir, name), 'wb') as fh:
+        with open(os.path.join(self.destination_dir, basename), 'wb') as fh:
             fh.write(self.request.body)
-        data = {
-            "filename": name
-        }
-        yield gen.Task(self.process_file, data)
+        yield gen.Task(self.process_file, basename)
         self.write({
             'ok'    : True,
             'result': self.result
         })
 
-    def process_file(self, data, callback=lambda:None):
+    def process_file(self, basename, callback=lambda:None):
+        """to be overriden"""
+
+@web.stream_request_body
+class MultiPartFileReceiver(JsonRequestHandler):
+    @property
+    def destination_dir(self):
+        raise NotImplemented
+
+    @classmethod
+    def urls(cls, path):
+        return [
+            (r"/%s/$" % path, cls),
+        ]
+
+    def prepare(self):
+        self.basename = "/tmp/" + str(uuid4())
+        if not os.path.exists(self.destination_dir):
+            os.mkdir(self.destination_dir)
+        self.filehandle = open(os.path.join(self.destination_dir, self.basename), 'wb')
+        self.filehandle.write(b'')
+
+        if 'expected_size' in self.request.arguments:
+            self.request.connection.set_max_body_size(int(self.get_argument('expected_size')))
+        else:
+            self.request.connection.set_max_body_size(200*1024*1024)
+
+        if 'body_timeout' in self.request.arguments:
+            self.request.connection.set_body_timeout(float(self.get_argument('body_timeout')))
+
+    def data_received(self, data):
+        self.filehandle.write(data)
+
+    @web.asynchronous
+    @gen.engine
+    def post(self):
+        # self.result can be set by subclass in process_file,
+        # so that answer will be returned to browser
+        self.result = None
+        self.filehandle.flush()
+        self.filehandle.close()
+        yield gen.Task(self.process_file, self.basename)
+        self.write({
+            'ok'    : True,
+            'result': self.result
+        })
+
+    def process_file(self, basename, callback=lambda:None):
         """to be overriden"""
 
 class SystemInfo(JsonRequestHandler):
     def get(self):
-        uname = os.uname()
+        hwdesc = safe_json_load("/etc/mod-hardware-descriptor.json", dict)
+        uname  = os.uname()
+
+        if os.path.exists("/etc/mod-release/system"):
+            with open("/etc/mod-release/system") as fh:
+                sysdate = fh.readline().replace("generated=","").split(" at ",1)[0].strip()
+        else:
+            sysdate = "Unknown"
+
         info = {
-            "hardware": safe_json_load("/etc/mod-hardware-descriptor.json", dict),
-            "env": dict((k, os.environ[k]) for k in [k for k in os.environ.keys() if k.startswith("MOD")]),
+            "hwname": hwdesc.get('name',"Unknown"),
+            "sysdate": sysdate,
             "python": {
-                "argv"    : sys.argv,
-                "path"    : sys.path,
-                "platform": sys.platform,
-                "prefix"  : sys.prefix,
                 "version" : sys.version
             },
             "uname": {
                 "machine": uname.machine,
                 "release": uname.release,
+                "sysname": uname.sysname,
                 "version": uname.version
             }
         }
 
         self.write(info)
 
-class UpdateDownload(SimpleFileReceiver):
-    destination_dir = "/tmp/update"
+class SystemPreferences(JsonRequestHandler):
+    OPTION_NULL          = 0
+    OPTION_FILE_EXISTS   = 1
+    OPTION_FILE_CONTENTS = 2
 
-    @web.asynchronous
-    @gen.engine
-    def process_file(self, data, callback=lambda:None):
+    def __init__(self, application, request, **kwargs):
+        JsonRequestHandler.__init__(self, application, request, **kwargs)
+
+        self.prefs = []
+
+        self.make_pref("bluetooth_name", self.OPTION_FILE_CONTENTS, "/data/bluetooth/name", str)
+        self.make_pref("jack_mono_copy",  self.OPTION_FILE_EXISTS, "/data/jack-mono-copy")
+        self.make_pref("jack_sync_mode",  self.OPTION_FILE_EXISTS, "/data/jack-sync-mode")
+        self.make_pref("jack_256_frames",  self.OPTION_FILE_EXISTS, "/data/using-256-frames")
+
+        # Optional services
+        self.make_pref("service_mixserver",  self.OPTION_FILE_EXISTS, "/data/enable-mixserver")
+        self.make_pref("service_mod_sdk",    self.OPTION_FILE_EXISTS, "/data/enable-mod-sdk")
+        self.make_pref("service_netmanager", self.OPTION_FILE_EXISTS, "/data/enable-netmanager")
+
+    def make_pref(self, label, otype, data, valtype=None, valdef=None):
+        self.prefs.append({
+            "label": label,
+            "type" : otype,
+            "data" : data,
+            "valtype": valtype,
+            "valdef" : valdef,
+        })
+
+    def get(self):
+        ret = {}
+
+        for pref in self.prefs:
+            if pref['type'] == self.OPTION_FILE_EXISTS:
+                val = os.path.exists(pref['data'])
+
+            elif pref['type'] == self.OPTION_FILE_CONTENTS:
+                if os.path.exists(pref['data']):
+                    with open(pref['data'], 'r') as fh:
+                        val = fh.read().strip()
+                    try:
+                        val = pref['valtype'](val)
+                    except:
+                        val = pref['valdef']
+                else:
+                    val = pref['valdef']
+            else:
+                pass
+
+            ret[pref['label']] = val
+
+        self.write(ret)
+
+class SystemExeChange(JsonRequestHandler):
+    @gen.coroutine
+    def post(self):
+        etype = self.get_argument('type')
+
+        if etype == "command":
+            cmd = self.get_argument('cmd').split(" ",1)
+            if len(cmd) == 1:
+                cmd = cmd[0]
+            else:
+                cmd, cdata = cmd
+
+            if cmd == "reboot":
+                yield gen.Task(run_command, ["hmi-reset"], None)
+                IOLoop.instance().add_callback(self.reboot)
+
+            elif cmd == "restore":
+                IOLoop.instance().add_callback(start_restore)
+
+            elif cmd == "backup-export":
+                args  = ["mod-backup", "backup"]
+                cdata = cdata.split(",")
+                if cdata[0] == "1":
+                    args.append("-d")
+                if cdata[1] == "1":
+                    args.append("-p")
+                resp  = yield gen.Task(run_command, args, None)
+                error = resp[2].decode("utf-8", errors="ignore").strip()
+                if len(error) > 1:
+                    error = error[0].title()+error[1:]+"."
+                self.write({
+                    'ok'   : resp[0] == 0,
+                    'error': error,
+                })
+                return
+
+            elif cmd == "backup-import":
+                args  = ["mod-backup", "restore"]
+                cdata = cdata.split(",")
+                if cdata[0] == "1":
+                    args.append("-d")
+                if cdata[1] == "1":
+                    args.append("-p")
+                resp = yield gen.Task(run_command, args, None)
+                error = resp[2].decode("utf-8", errors="ignore").strip()
+                if len(error) > 1:
+                    error = error[0].title()+error[1:]+"."
+                self.write({
+                    'ok'   : resp[0] == 0,
+                    'error': error,
+                })
+                if resp[0] == 0:
+                    IOLoop.instance().add_callback(self.restart_services)
+                return
+
+            else:
+                self.write(False)
+                return
+
+        elif etype == "filecreate":
+            path   = self.get_argument('path')
+            create = bool(int(self.get_argument('create')))
+
+            if path not in ("jack-mono-copy", "jack-sync-mode", "using-256-frames"):
+                self.write(False)
+                return
+
+            filename = "/data/" + path
+
+            if create:
+                foldername = os.path.dirname(filename)
+                if not os.path.exists(foldername):
+                    os.makedirs(foldername)
+                with open(filename, 'wb') as fh:
+                    fh.write(b"")
+            elif os.path.exists(filename):
+                os.remove(filename)
+
+        elif etype == "filewrite":
+            path    = self.get_argument('path')
+            content = self.get_argument('content').strip()
+
+            if path not in ("bluetooth/name",):
+                self.write(False)
+                return
+
+            filename = "/data/" + path
+
+            if content:
+                foldername = os.path.dirname(filename)
+                if not os.path.exists(foldername):
+                    os.makedirs(foldername)
+                with open(filename, 'w') as fh:
+                    fh.write(content)
+            elif os.path.exists(filename):
+                os.remove(filename)
+
+        elif etype == "service":
+            name   = self.get_argument('name')
+            enable = bool(int(self.get_argument('enable')))
+
+            if name not in ("mixserver", "netmanager", "mod-sdk"):
+                self.write(False)
+                return
+
+            checkname   = "/data/enable-" + name
+            servicename = name
+
+            if servicename == "netmanager":
+                servicename = "jack-netmanager"
+
+            if enable:
+                with open(checkname, 'wb') as fh:
+                    fh.write(b"")
+                yield gen.Task(run_command, ["systemctl", "start", servicename], None)
+
+            else:
+                if os.path.exists(checkname):
+                    os.remove(checkname)
+                yield gen.Task(run_command, ["systemctl", "stop", servicename], None)
+
+        os.sync()
+        self.write(True)
+
+    @gen.coroutine
+    def reboot(self):
+        os.sync()
+        yield gen.Task(run_command, ["reboot"], None)
+
+    @gen.coroutine
+    def restart_services(self):
+        yield gen.Task(run_command, ["systemctl", "restart", "jack2"], None)
+        lv2_cleanup()
+        lv2_init()
+
+class UpdateDownload(MultiPartFileReceiver):
+    destination_dir = "/tmp/os-update"
+
+    def process_file(self, basename, callback=lambda:None):
         self.sfr_callback = callback
 
         # TODO: verify checksum?
-        move_file(os.path.join(self.destination_dir, data['filename']), UPDATE_FILE, self.move_file_finished)
+        src = os.path.join(self.destination_dir, basename)
+        dst = UPDATE_MOD_OS_FILE
+        run_command(['mv', src, dst], None, self.move_file_finished)
 
-    def move_file_finished(self):
+    def move_file_finished(self, resp):
+        os.sync()
         self.result = True
         self.sfr_callback()
 
@@ -311,27 +571,47 @@ class UpdateBegin(JsonRequestHandler):
     @web.asynchronous
     @gen.engine
     def post(self):
-        if not os.path.exists(UPDATE_FILE):
+        if not os.path.exists(UPDATE_MOD_OS_FILE):
             self.write(False)
             return
 
-        # write & finish before sending message
+        IOLoop.instance().add_callback(start_restore)
         self.write(True)
 
-        # send message asap, but not quite right now
-        yield gen.Task(self.flush, False)
-        yield gen.Task(SESSION.hmi.send, "restore", datatype='boolean')
+class ControlChainDownload(SimpleFileReceiver):
+    destination_dir = "/tmp/cc-update"
+
+    def process_file(self, basename, callback=lambda:None):
+        self.sfr_callback = callback
+
+        # TODO: verify checksum?
+        src = os.path.join(self.destination_dir, basename)
+        dst = UPDATE_CC_FIRMWARE_FILE
+        run_command(['mv', src, dst], None, self.move_file_finished)
+
+    def move_file_finished(self, resp):
+        self.result = True
+        self.sfr_callback()
+
+class ControlChainCancel(JsonRequestHandler):
+    def post(self):
+        if not os.path.exists(UPDATE_CC_FIRMWARE_FILE):
+            self.write(False)
+            return
+
+        os.remove(UPDATE_CC_FIRMWARE_FILE)
+        self.write(True)
 
 class EffectInstaller(SimpleFileReceiver):
     destination_dir = DOWNLOAD_TMP_DIR
 
     @web.asynchronous
     @gen.engine
-    def process_file(self, data, callback=lambda:None):
+    def process_file(self, basename, callback=lambda:None):
         def on_finish(resp):
             self.result = resp
             callback()
-        install_package(data['filename'], on_finish)
+        install_package(os.path.join(DOWNLOAD_TMP_DIR, basename), on_finish)
 
 class EffectBulk(JsonRequestHandler):
     def prepare(self):
@@ -360,19 +640,54 @@ class SDKEffectInstaller(EffectInstaller):
     @web.asynchronous
     @gen.engine
     def post(self):
-        upload = self.request.files['package'][0]
+        upload   = self.request.files['package'][0]
+        filename = os.path.join(DOWNLOAD_TMP_DIR, upload['filename'])
 
-        with open(os.path.join(DOWNLOAD_TMP_DIR, upload['filename']), 'wb') as fh:
+        with open(filename, 'wb') as fh:
             fh.write(b64decode(upload['body']))
 
-        resp = yield gen.Task(install_package, upload['filename'])
+        resp = yield gen.Task(install_package, filename)
 
         if resp['ok']:
             SESSION.msg_callback("rescan " + b64encode(json.dumps(resp).encode("utf-8")).decode("utf-8"))
 
         self.write(resp)
 
-class EffectResource(web.StaticFileHandler):
+class SDKEffectUpdater(JsonRequestHandler):
+    def set_default_headers(self):
+        if 'Origin' not in self.request.headers.keys():
+            return
+        origin = self.request.headers['Origin']
+        match  = re.match(r'^(\w+)://([^/]*)/?', origin)
+        if match is None:
+            return
+        protocol, domain = match.groups()
+        if protocol != "http" or not domain.endswith(":9000"):
+            return
+        self.set_header("Access-Control-Allow-Origin", origin)
+
+    def post(self):
+        bundle = self.get_argument("bundle")
+        uri    = self.get_argument("uri")
+
+        ok, error = SESSION.host.refresh_bundle(bundle, uri)
+        if not ok:
+            self.write({
+                'ok'   : False,
+                'error': error
+            })
+            return
+
+        data = {
+            'ok'       : True,
+            'removed'  : [uri],
+            'installed': [uri],
+        }
+        SESSION.msg_callback("rescan " + b64encode(json.dumps(data).encode("utf-8")).decode("utf-8"))
+
+        self.write({ 'ok': True })
+
+class EffectResource(TimelessStaticFileHandler):
 
     def initialize(self):
         # Overrides StaticFileHandler initialize
@@ -408,7 +723,7 @@ class EffectResource(web.StaticFileHandler):
         super(EffectResource, self).initialize(os.path.join(HTML_DIR, 'resources'))
         return super(EffectResource, self).get(path)
 
-class EffectImage(web.StaticFileHandler):
+class EffectImage(TimelessStaticFileHandler):
     def initialize(self):
         uri = self.get_argument('uri')
 
@@ -422,7 +737,7 @@ class EffectImage(web.StaticFileHandler):
         except:
             raise web.HTTPError(404)
 
-        return web.StaticFileHandler.initialize(self, root)
+        return TimelessStaticFileHandler.initialize(self, root)
 
     def parse_url_path(self, image):
         try:
@@ -436,11 +751,11 @@ class EffectImage(web.StaticFileHandler):
             except:
                 raise web.HTTPError(404)
             else:
-                web.StaticFileHandler.initialize(self, os.path.dirname(path))
+                TimelessStaticFileHandler.initialize(self, os.path.dirname(path))
 
         return path
 
-class EffectFile(web.StaticFileHandler):
+class EffectFile(TimelessStaticFileHandler):
     def initialize(self):
         # return custom type directly. The browser will do the parsing
         self.custom_type = None
@@ -457,7 +772,7 @@ class EffectFile(web.StaticFileHandler):
         except:
             raise web.HTTPError(404)
 
-        return web.StaticFileHandler.initialize(self, root)
+        return TimelessStaticFileHandler.initialize(self, root)
 
     def parse_url_path(self, prop):
         try:
@@ -466,14 +781,14 @@ class EffectFile(web.StaticFileHandler):
             raise web.HTTPError(404)
 
         if prop in ("iconTemplate", "settingsTemplate", "stylesheet", "javascript"):
-            self.custom_type = "text/plain"
+            self.custom_type = "text/plain; charset=UTF-8"
 
         return path
 
     def get_content_type(self):
         if self.custom_type is not None:
             return self.custom_type
-        return web.StaticFileHandler.get_content_type(self)
+        return TimelessStaticFileHandler.get_content_type(self)
 
 class EffectAdd(JsonRequestHandler):
     @web.asynchronous
@@ -620,6 +935,22 @@ class ServerWebSocket(websocket.WebSocketHandler):
             height = int(float(data[2]))
             SESSION.ws_pedalboard_size(width, height)
 
+        elif cmd == "link_enable":
+            on = bool(int(data[1]))
+            SESSION.host.set_link_enabled(on, True)
+
+        elif cmd == "transport-bpb":
+            bpb = float(data[1])
+            SESSION.host.set_transport_bpb(bpb, True)
+
+        elif cmd == "transport-bpm":
+            bpm = float(data[1])
+            SESSION.host.set_transport_bpm(bpm, True)
+
+        elif cmd == "transport-rolling":
+            rolling = bool(int(data[1]))
+            SESSION.host.set_transport_rolling(rolling, True)
+
 class PackageUninstall(JsonRequestHandler):
     @web.asynchronous
     @gen.engine
@@ -685,7 +1016,7 @@ class PedalboardSave(JsonRequestHandler):
             'bundlepath': bundlepath
         })
 
-class PedalboardPackBundle(web.RequestHandler):
+class PedalboardPackBundle(TimelessRequestHandler):
     @web.asynchronous
     @gen.engine
     def get(self):
@@ -790,8 +1121,8 @@ class PedalboardLoadWeb(SimpleFileReceiver):
 
     @web.asynchronous
     @gen.engine
-    def process_file(self, data, callback=lambda:None):
-        filename = os.path.join(self.destination_dir, data['filename'])
+    def process_file(self, basename, callback=lambda:None):
+        filename = os.path.join(self.destination_dir, basename)
 
         if not os.path.exists(filename):
             callback()
@@ -830,10 +1161,10 @@ class PedalboardRemove(JsonRequestHandler):
         remove_pedalboard_from_banks(bundlepath)
         self.write(True)
 
-class PedalboardImage(web.StaticFileHandler):
+class PedalboardImage(TimelessStaticFileHandler):
     def initialize(self):
         root = self.get_argument('bundlepath')
-        return web.StaticFileHandler.initialize(self, root)
+        return TimelessStaticFileHandler.initialize(self, root)
 
     def parse_url_path(self, image):
         return os.path.join(self.root, "%s.png" % image)
@@ -984,7 +1315,8 @@ class HardwareLoad(JsonRequestHandler):
         hardware = SESSION.get_hardware()
         self.write(hardware)
 
-class TemplateHandler(web.RequestHandler):
+class TemplateHandler(TimelessRequestHandler):
+    @gen.coroutine
     def get(self, path):
         # Caching strategy.
         # 1. If we don't have a version parameter, redirect
@@ -1005,16 +1337,28 @@ class TemplateHandler(web.RequestHandler):
 
         if not path:
             path = 'index.html'
+        elif path == 'sdk':
+            self.redirect(self.request.full_url().replace("/sdk", ":9000"), True)
+            return
+        elif path == 'settings':
+            uri = '/settings.html?v=%s' % curVersion
+            self.redirect(uri, True)
+            return
+        elif not os.path.exists(os.path.join(HTML_DIR, path)):
+            uri = '/?v=%s' % curVersion
+            self.redirect(uri)
+            return
 
         loader = Loader(HTML_DIR)
-        section = path.split('.')[0]
+        section = path.split('.',1)[0]
+
+        if section == 'index':
+            yield gen.Task(SESSION.wait_for_hardware_if_needed)
+
         try:
             context = getattr(self, section)()
         except AttributeError:
             context = {}
-        context['cloud_url']  = CLOUD_HTTP_ADDRESS
-        context['bufferSize'] = get_jack_buffer_size()
-        context['sampleRate'] = get_jack_sample_rate()
         self.write(loader.load(path).generate(**context))
 
     def get_version(self):
@@ -1025,10 +1369,7 @@ class TemplateHandler(web.RequestHandler):
         return str(int(time.time()))
 
     def index(self):
-        context = {}
-
         user_id = safe_json_load(USER_ID_JSON_FILE, dict)
-        prefs   = safe_json_load(PREFERENCES_JSON_FILE, dict)
 
         with open(DEFAULT_ICON_TEMPLATE, 'r') as fh:
             default_icon_template = squeeze(fh.read().replace("'", "\\'"))
@@ -1048,6 +1389,7 @@ class TemplateHandler(web.RequestHandler):
             'default_settings_template': default_settings_template,
             'default_pedalboard': DEFAULT_PEDALBOARD,
             'cloud_url': CLOUD_HTTP_ADDRESS,
+            'plugins_url': PLUGINS_HTTP_ADDRESS,
             'pedalboards_url': PEDALBOARDS_HTTP_ADDRESS,
             'controlchain_url': CONTROLCHAIN_HTTP_ADDRESS,
             'hardware_profile': b64encode(json.dumps(SESSION.get_hardware_actuators()).encode("utf-8")),
@@ -1059,20 +1401,24 @@ class TemplateHandler(web.RequestHandler):
             'fulltitle':  xhtml_escape(fullpbname),
             'titleblend': '' if SESSION.host.pedalboard_name else 'blend',
             'using_app': 'true' if APP else 'false',
-            'using_mod': 'true' if DEVICE_KEY else 'false',
+            'using_mod': 'true' if DEVICE_KEY or DEV_HOST else 'false',
             'user_name': squeeze(user_id.get("name", "").replace("'", "\\'")),
             'user_email': squeeze(user_id.get("email", "").replace("'", "\\'")),
             'favorites': json.dumps(gState.favorites),
-            'preferences': json.dumps(prefs),
+            'preferences': json.dumps(SESSION.prefs.prefs),
+            'bufferSize': get_jack_buffer_size(),
+            'sampleRate': get_jack_sample_rate(),
         }
         return context
 
-    def icon(self):
-        return self.index()
-
     def pedalboard(self):
-        context = self.index()
         bundlepath = self.get_argument('bundlepath')
+
+        with open(DEFAULT_ICON_TEMPLATE, 'r') as fh:
+            default_icon_template = squeeze(fh.read().replace("'", "\\'"))
+
+        with open(DEFAULT_SETTINGS_TEMPLATE, 'r') as fh:
+            default_settings_template = squeeze(fh.read().replace("'", "\\'"))
 
         try:
             pedalboard = get_pedalboard_info(bundlepath)
@@ -1087,17 +1433,35 @@ class TemplateHandler(web.RequestHandler):
                 'hardware': {},
             }
 
-        context['pedalboard'] = b64encode(json.dumps(pedalboard).encode("utf-8"))
+        context = {
+            'default_icon_template': default_icon_template,
+            'default_settings_template': default_settings_template,
+            'pedalboard': b64encode(json.dumps(pedalboard).encode("utf-8"))
+        }
+
         return context
 
-class TemplateLoader(web.RequestHandler):
+    def settings(self):
+        prefs = safe_json_load(PREFERENCES_JSON_FILE, dict)
+
+        context = {
+            'cloud_url': CLOUD_HTTP_ADDRESS,
+            'controlchain_url': CONTROLCHAIN_HTTP_ADDRESS,
+            'version': self.get_argument('v'),
+            'preferences': json.dumps(prefs),
+            'bufferSize': get_jack_buffer_size(),
+            'sampleRate': get_jack_sample_rate(),
+        }
+        return context
+
+class TemplateLoader(TimelessRequestHandler):
     def get(self, path):
         self.set_header("Content-Type", "text/plain; charset=UTF-8")
         with open(os.path.join(HTML_DIR, 'include', path), 'r') as fh:
             self.write(fh.read())
         self.finish()
 
-class BulkTemplateLoader(web.RequestHandler):
+class BulkTemplateLoader(TimelessRequestHandler):
     def get(self):
         self.set_header("Content-Type", "text/plain; charset=UTF-8")
         basedir = os.path.join(HTML_DIR, 'include')
@@ -1159,6 +1523,8 @@ class SetBufferSize(JsonRequestHandler):
             elif os.path.exists(USING_256_FRAMES_FILE):
                 os.remove(USING_256_FRAMES_FILE)
 
+            os.sync()
+
         newsize = set_jack_buffer_size(size)
         self.write({
             'ok'  : newsize == size,
@@ -1175,19 +1541,14 @@ class SaveSingleConfigValue(JsonRequestHandler):
         key   = self.get_argument("key")
         value = self.get_argument("value")
 
-        data = safe_json_load(PREFERENCES_JSON_FILE, dict)
-        data[key] = value
-
-        with open(PREFERENCES_JSON_FILE, 'w') as fh:
-            json.dump(data, fh)
-
+        SESSION.prefs.setAndSave(key, value)
         self.write(True)
 
 class SaveUserId(JsonRequestHandler):
     def post(self):
         name  = self.get_argument("name")
         email = self.get_argument("email")
-        with open(USER_ID_JSON_FILE, 'w') as fh:
+        with TextFileFlusher(USER_ID_JSON_FILE) as fh:
             json.dump({
                 "name" : name,
                 "email": email,
@@ -1221,7 +1582,7 @@ class FavoritesAdd(JsonRequestHandler):
 
         # add and save
         gState.favorites.append(uri)
-        with open(FAVORITES_JSON_FILE, 'w') as fh:
+        with TextFileFlusher(FAVORITES_JSON_FILE) as fh:
             json.dump(gState.favorites, fh)
 
         # done
@@ -1239,7 +1600,7 @@ class FavoritesRemove(JsonRequestHandler):
 
         # remove and save
         gState.favorites.remove(uri)
-        with open(FAVORITES_JSON_FILE, 'w') as fh:
+        with TextFileFlusher(FAVORITES_JSON_FILE) as fh:
             json.dump(gState.favorites, fh)
 
         # done
@@ -1321,6 +1682,7 @@ class TokensDelete(JsonRequestHandler):
 
         if os.path.exists(tokensConf):
             os.remove(tokensConf)
+            os.sync()
 
         self.write(True)
 
@@ -1332,9 +1694,8 @@ class TokensGet(JsonRequestHandler):
             self.write({ 'ok': False })
             return
 
-        with open(tokensConf, 'r') as fh:
-            data = json.load(fh)
-            keys = data.keys()
+        data = safe_json_load(tokensConf, dict)
+        keys = data.keys()
 
         data['ok'] = bool("user_id"       in keys and
                           "access_token"  in keys and
@@ -1349,7 +1710,7 @@ class TokensSave(JsonRequestHandler):
         data = dict(self.request.body)
         data.pop("expires_in_days")
 
-        with open(tokensConf, 'w') as fh:
+        with TextFileFlusher(tokensConf) as fh:
             json.dump(data, fh)
 
         self.write(True)
@@ -1360,9 +1721,14 @@ application = web.Application(
         EffectInstaller.urls('effect/install') +
         [
             (r"/system/info", SystemInfo),
+            (r"/system/prefs", SystemPreferences),
+            (r"/system/exechange", SystemExeChange),
 
             (r"/update/download/", UpdateDownload),
             (r"/update/begin", UpdateBegin),
+
+            (r"/controlchain/download/", ControlChainDownload),
+            (r"/controlchain/cancel/", ControlChainCancel),
 
             (r"/resources/(.*)", EffectResource),
 
@@ -1437,6 +1803,7 @@ application = web.Application(
             (r"/reset/?", DashboardClean),
 
             (r"/sdk/install/?", SDKEffectInstaller),
+            (r"/sdk/update", SDKEffectUpdater),
 
             (r"/jack/get_midi_devices", JackGetMidiDevices),
             (r"/jack/set_midi_devices", JackSetMidiDevices),
@@ -1457,28 +1824,36 @@ application = web.Application(
 
             (r"/(index.html)?$", TemplateHandler),
             (r"/([a-z]+\.html)$", TemplateHandler),
+            (r"/(sdk|settings)$", TemplateHandler),
             (r"/load_template/([a-z_]+\.html)$", TemplateLoader),
             (r"/js/templates.js$", BulkTemplateLoader),
 
             (r"/websocket/?$", ServerWebSocket),
 
-            (r"/(.*)", web.StaticFileHandler, {"path": HTML_DIR}),
+            (r"/(.*)", TimelessStaticFileHandler, {"path": HTML_DIR}),
         ],
         debug=LOG and False, **settings)
+
+def signal_device_firmware_updated():
+    os.remove(UPDATE_CC_FIRMWARE_FILE)
+    SESSION.signal_device_updated()
 
 def signal_upgrade_check():
     with open("/root/check-upgrade-system", 'r') as fh:
         countRead = fh.read().strip()
         countNumb = int(countRead) if countRead else 0
 
-    with open("/root/check-upgrade-system", 'w') as fh:
+    with TextFileFlusher("/root/check-upgrade-system") as fh:
         fh.write("%i\n" % (countNumb+1))
 
     SESSION.hmi.send("restore")
 
 def signal_recv(sig, frame=0):
     if sig == SIGUSR1:
-        func = SESSION.signal_save
+        if os.path.exists(UPDATE_CC_FIRMWARE_FILE):
+            func = signal_device_firmware_updated
+        else:
+            func = SESSION.signal_save
     elif sig == SIGUSR2:
         if os.path.exists("/root/check-upgrade-system") and \
            os.path.exists("/etc/systemd/system/upgrade-system-check.service"):

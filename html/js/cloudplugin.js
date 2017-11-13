@@ -41,7 +41,10 @@ JqueryClass('cloudPluginBox', {
             },
             upgradePluginURI: function (uri, callback) {
                 callback({}, "")
-            }
+            },
+            info: null,
+            isMainWindow: true,
+            windowName: "Plugin Store"
         }, options)
 
         self.data(options)
@@ -103,8 +106,8 @@ JqueryClass('cloudPluginBox', {
 
         var results = {}
         self.data('results', results)
-
         self.data('category', null)
+        self.data('firstLoad', true)
         self.find('ul.categories li').click(function () {
             var category = $(this).attr('id').replace(/^cloud-plugin-tab-/, '')
             self.cloudPluginBox('setCategory', category)
@@ -113,6 +116,10 @@ JqueryClass('cloudPluginBox', {
         self.cloudPluginBox('setCategory', "All")
 
         options.open = function () {
+            self.data('firstLoad', true)
+            $('#cloud_install_all').addClass("disabled").css({color:'#444'})
+            $('#cloud_update_all').addClass("disabled").css({color:'#444'})
+
             var stablecb = self.find('input:checkbox[name=stable]')
             if (stablecb.is(':checked')) {
                 self.cloudPluginBox('search')
@@ -245,6 +252,12 @@ JqueryClass('cloudPluginBox', {
             } else {
                 self.cloudPluginBox('showPlugins', plugins, cloudReached)
             }
+
+            if (self.data('firstLoad')) {
+                self.data('firstLoad', false)
+                $('#cloud_install_all').removeClass("disabled").css({color:'white'})
+                $('#cloud_update_all').removeClass("disabled").css({color:'white'})
+            }
         }
 
         // cloud search
@@ -366,6 +379,12 @@ JqueryClass('cloudPluginBox', {
                 customRenderCallback(plugins)
             } else {
                 self.cloudPluginBox('showPlugins', plugins, cloudReached)
+            }
+
+            if (self.data('firstLoad')) {
+                self.data('firstLoad', false)
+                $('#cloud_install_all').removeClass("disabled").css({color:'white'})
+                $('#cloud_update_all').removeClass("disabled").css({color:'white'})
             }
         }
 
@@ -510,7 +529,10 @@ JqueryClass('cloudPluginBox', {
         self.data('categoryCount', categories)
 
         for (var category in categories) {
-            var tab     = self.find('#cloud-plugin-tab-' + category)
+            var tab = self.find('#cloud-plugin-tab-' + category)
+            if (tab.length == 0) {
+                continue
+            }
             var content = tab.html().split(/\s/)
 
             if (content.length >= 2 && content[1] == "Utility") {
@@ -739,10 +761,18 @@ JqueryClass('cloudPluginBox', {
                 label : plugin.label,
                 ports : plugin.ports,
                 demo  : !!plugin.demo, // FIXME
+                plugin_href: PLUGINS_URL + '/' + btoa(plugin.uri),
                 pedalboard_href: desktop.getPedalboardHref(plugin.uri),
             };
 
-            var info = $(Mustache.render(TEMPLATES.cloudplugin_info, metadata))
+            var info = self.data('info')
+
+            if (info) {
+                info.remove()
+                self.data('info', null)
+            }
+
+            info = $(Mustache.render(TEMPLATES.cloudplugin_info, metadata))
 
             // hide control ports table if none available
             if (plugin.ports.control.input.length == 0) {
@@ -798,6 +828,9 @@ JqueryClass('cloudPluginBox', {
             }
 
             info.appendTo($('body'))
+            info.window({
+                windowName: "Cloud Plugin Info"
+            })
             info.window('open')
             self.data('info', info)
         }

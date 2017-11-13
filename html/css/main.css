@@ -6773,6 +6773,7 @@ hr.dotted {
   display: none;
 }
 #main-menu #mod-show-midi-port,
+#main-menu #mod-transport-icon,
 #main-menu .mod-bypass,
 #main-menu #mod-cpu,
 #main-menu #mod-ram,
@@ -6792,6 +6793,7 @@ hr.dotted {
   transition: all 0.33s;
 }
 #main-menu #mod-show-midi-port:hover,
+#main-menu #mod-transport-icon:hover,
 #main-menu .mod-bypass:hover,
 #main-menu #mod-cpu:hover,
 #main-menu #mod-ram:hover,
@@ -6800,6 +6802,7 @@ hr.dotted {
   background-color: #000;
 }
 #main-menu #mod-show-midi-port.selected,
+#main-menu #mod-transport-icon.selected,
 #main-menu .mod-bypass.selected,
 #main-menu #mod-cpu.selected,
 #main-menu #mod-ram.selected,
@@ -6809,6 +6812,15 @@ hr.dotted {
 }
 #main-menu #mod-show-midi-port {
   background-image: url(../img/icons/25/midi.png);
+}
+#main-menu #mod-transport-icon {
+  background-image: url(../img/icons/25/transport.png);
+  font-family: monospace;
+  width: 10.5em !important;
+  text-align: right;
+}
+#main-menu #mod-transport-icon.playing {
+  background-color: #883996;
 }
 #main-menu .mod-bypass {
   background-image: url(../img/icons/25/bypass.png);
@@ -6888,8 +6900,8 @@ hr.dotted {
 #main-menu #mod-status.online {
   background-image: url(../img/icons/36/disconnect.png);
 }
-#main-menu #mod-cloud {
-  background-image: url(../img/icons/36/cloud.png);
+#main-menu #mod-devices {
+  background-image: url(../img/icons/36/control-chain.png);
 }
 #cloud_install_all {
   background-image: url(../img/icons/36/save.png);
@@ -7129,27 +7141,44 @@ header#pedalboard-actions {
   right: 14px;
   width: 0;
 }
+#mod-devices-window,
 #mod-upgrade {
   background: white;
   color: black;
   font-size: 15px;
   max-height: 350px;
-  max-width: 450px;
-  min-width: 350px;
   overflow: auto;
   position: absolute;
   right: 10px;
   bottom: 50px;
   z-index: 100;
 }
+#mod-devices-window .progressbar-wrapper,
 #mod-upgrade .progressbar-wrapper {
   border: 1px solid #444444;
   height: 20px;
   width: 330px;
 }
+#mod-devices-window .progressbar,
 #mod-upgrade .progressbar {
   background-color: #8888ff;
   height: 20px;
+}
+#mod-devices-window {
+  max-width: 600px;
+  min-width: 500px;
+}
+#mod-upgrade {
+  max-width: 450px;
+  min-width: 350px;
+}
+#mod-transport-window {
+  bottom: 48px;
+  right: 310px;
+  top: initial;
+  left: initial;
+  background: rgba(17, 17, 17, 0.9);
+  padding: 50px 40px 15px 40px;
 }
 #plugins-library {
   bottom: 45px;
@@ -7448,6 +7477,7 @@ header#pedalboard-actions {
 }
 .plugin-info .box {
   margin-top: 3em;
+  margin-bottom: 3em;
   background-color: #111;
   padding: 15px;
   border: 2px solid #333;
@@ -7493,7 +7523,6 @@ header#pedalboard-actions {
   height: 100%;
   display: block;
   position: a;
-  padding-bottom: 20%;
   padding-left: 45px;
   background: -moz-linear-gradient(left, rgba(17, 17, 17, 0.1) 1em, #111111 2em);
   background: -webkit-gradient(linear, left top, right top, color-stop(1em, rgba(17, 17, 17, 0.1)), color-stop(2em, #111111));
@@ -7711,7 +7740,7 @@ header#pedalboard-actions {
 .plugin-info .favorite-button.favorite:hover {
   opacity: 1;
 }
-.plugin-info .pedalboard-href {
+.plugin-info .online-button-href {
   display: inline-block;
   margin-bottom: 10px;
 }

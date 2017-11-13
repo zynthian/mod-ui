@@ -107,6 +107,10 @@ JqueryClass('pedalboard', {
                 callback({})
             },
 
+            // Show dialog with plugin info, same as clicking on the bottom plugin bar
+            showPluginInfo: function (pluginData) {
+            },
+
             // Sets the size of the pedalboard
             windowSize: function (width, height) {},
 
@@ -450,11 +454,14 @@ JqueryClass('pedalboard', {
         // Create needed hardware ports
         createHardwarePorts = function () {
             if (data.hardware) {
+                var symbol
                 for (var i=1, count=data.hardware.audio_ins; i<=count; i++) {
+                    symbol = (i < 3) ? ('/graph/capture_' + i) : ('/graph/audio_from_slave_' + (i-2))
                     var hw = $('<div class="hardware-output" mod-port-index="' + i + '" title="Hardware Capture ' + i + '">')
-                    self.pedalboard('addHardwareOutput', hw, '/graph/capture_' + i, 'audio')
+                    self.pedalboard('addHardwareOutput', hw, symbol, 'audio')
                 }
                 for (var i=1, count=data.hardware.audio_outs; i<=count; i++) {
+                    symbol = (i < 3) ? ('/graph/playback_' + i) : ('/graph/audio_to_slave_' + (i-2))
                     var hw = $('<div class="hardware-input" mod-port-index="' + i + '" title="Hardware Playback ' + i + '">')
                     self.pedalboard('addHardwareInput', hw, '/graph/playback_' + i, 'audio')
                 }
@@ -1087,7 +1094,7 @@ JqueryClass('pedalboard', {
                 var e2_cv    = e2.hasClass('mod-cv-output')    || e2.hasClass('mod-cv-input')
                 // FIXME - there's got to be a better way..
                 if ((e1_audio && e2_audio) || (e1_midi && e2_midi) || (e1_cv && e2_cv)) {
-                    return (e1.attr('mod-port-index') > e2.attr('mod-port-index')) ? 1 : -1;
+                    return (parseInt(e1.attr('mod-port-index')) > parseInt(e2.attr('mod-port-index'))) ? 1 : -1;
                 } else if (e1_cv || e2_cv) {
                     return e1_cv ? 1 : -1;
                 } else {
@@ -1279,6 +1286,7 @@ JqueryClass('pedalboard', {
                 self.trigger('modified')
             }
 
+            icon.data('label', pluginData.label)
             icon.data('uri', pluginData.uri)
             icon.data('gui', pluginGui)
             icon.data('settings', settings)
@@ -1347,16 +1355,24 @@ JqueryClass('pedalboard', {
             })
 
             var actions = $('<div>').addClass('mod-actions').appendTo(icon)
+            $('<div>').addClass('mod-information').click(function () {
+                self.pedalboard('finishConnection')
+                self.data('showPluginInfo')(pluginData)
+                return false
+            }).appendTo(actions)
             $('<div>').addClass('mod-settings').click(function () {
+                self.pedalboard('finishConnection')
                 settings.window('open')
                 return false
             }).appendTo(actions)
             $('<div>').addClass('mod-remove').click(function () {
+                self.pedalboard('finishConnection')
                 self.pedalboard('removePlugin', instance)
                 return false
             }).appendTo(actions)
 
             settings.window({
+                windowName: "Plugin Settings",
                 windowManager: self.data('windowManager')
             }).appendTo($('body'))
             icon.css({
@@ -1369,6 +1385,14 @@ JqueryClass('pedalboard', {
             if (renderCallback)
                 renderCallback()
         })
+    },
+
+    getLabel: function (instance) {
+        var plugin = $(this).data('plugins')[instance]
+        if (plugin && plugin.data) {
+            return plugin.data('label')
+        }
+        return "effect"
     },
 
     getGui: function (instance) {
@@ -1659,8 +1683,9 @@ JqueryClass('pedalboard', {
                 return
             }
             self.pedalboard('resetData')
-            if (callback)
+            if (callback) {
                 callback()
+            }
         })
     },
 

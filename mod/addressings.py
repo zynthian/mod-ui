@@ -5,8 +5,9 @@ import json
 import os
 
 from tornado import gen
-from mod import get_hardware_actuators, safe_json_load
+from mod import get_hardware_actuators, safe_json_load, TextFileFlusher
 from mod.control_chain import ControlChainDeviceListener
+from mod.settings import PEDALBOARD_INSTANCE_ID
 from mod.utils import get_plugin_info, get_plugin_control_inputs_and_monitored_outputs
 
 HMI_ADDRESSING_TYPE_LINEAR       = 0
@@ -21,6 +22,9 @@ HMI_ADDRESSING_TYPE_INTEGER      = 128
 
 HMI_ACTUATOR_TYPE_FOOTSWITCH = 1
 HMI_ACTUATOR_TYPE_KNOB       = 2
+
+# use pitchbend as midi cc, with an invalid MIDI controller number
+MIDI_PITCHBEND_AS_CC = 131
 
 # Special URI for non-addressed controls
 kNullAddressURI = "null"
@@ -47,12 +51,21 @@ class Addressings(object):
         self._task_get_plugin_presets = None
         self._task_get_port_value = None
         self._task_store_address_data = None
-        self._task_hw_added = None
-        self._task_act_added = None
+        self._task_hw_added    = None
+        self._task_hw_removed  = None
+        self._task_act_added   = None
         self._task_act_removed = None
 
+        # First addressings/pedalboard load flag
+        self.first_load = True
+
+        # Flag and callbacks for Control Chain waiting
+        self.waiting_for_cc = True
+        self.waiting_for_cc_cbs = []
+
         self.cchain = ControlChainDeviceListener(self.cc_hardware_added,
-                                                 self.cc_actuator_added, self.cc_actuator_removed)
+                                                 self.cc_hardware_removed,
+                                                 self.cc_actuator_added)
 
     # -----------------------------------------------------------------------------------------------------------------
 
@@ -97,7 +110,8 @@ class Addressings(object):
     def get_actuators(self):
         actuators = self.hw_actuators.copy()
 
-        for uri, data in self.cc_metadata.items():
+        for uri in sorted(self.cc_metadata.keys()):
+            data = self.cc_metadata[uri]
             actuators.append({
                 'uri': uri,
                 'name' : data['name'],
@@ -144,18 +158,38 @@ class Addressings(object):
     # -----------------------------------------------------------------------------------------------------------------
 
     @gen.coroutine
-    def load(self, bundlepath, instances):
+    def load(self, bundlepath, instances, skippedPorts):
+        # Check if this is the first time we load addressings (ie, first time mod-ui starts)
+        first_load = self.first_load
+        self.first_load = False
+
+        # Check if pedalboard contains addressings first
         datafile = os.path.join(bundlepath, "addressings.json")
         if not os.path.exists(datafile):
+            self.waiting_for_cc = False
             return
 
+        # Load addressings
         data = safe_json_load(datafile, dict)
 
+        # Basic setup
+        cc_initialized = self.cchain.initialized
+        has_cc_addrs   = False
+        retry_cc_addrs = False
         used_actuators = []
 
-        yield gen.Task(self.cchain.wait_initialized)
+        # NOTE: We need to wait for Control Chain to finish initializing.
+        #       Can take some time due to waiting for several device descriptors.
+        #       We load everything that is possible first, then wait for Control Chain at the end if not ready yet.
 
+        # Load all addressings possible
         for actuator_uri, addrs in data.items():
+            is_cc = self.get_actuator_type(actuator_uri) == self.ADDRESSING_TYPE_CC
+            if is_cc:
+                has_cc_addrs = True
+                if not cc_initialized:
+                    continue
+
             for addr in addrs:
                 instance   = addr['instance'].replace("/graph/","",1)
                 portsymbol = addr['port']
@@ -164,6 +198,96 @@ class Addressings(object):
                     instance_id, plugin_uri = instances[instance]
                 except KeyError:
                     print("ERROR: An instance specified in addressings file is invalid")
+                    continue
+
+                if len(skippedPorts) > 0 and instance+"/"+portsymbol in skippedPorts:
+                    print("NOTE: An incompatible addressing has been skipped, port:", instance, portsymbol)
+                    continue
+
+                curvalue = self._task_get_port_value(instance_id, portsymbol)
+                addrdata = self.add(instance_id, plugin_uri, portsymbol, actuator_uri,
+                                    addr['label'], addr['minimum'], addr['maximum'], addr['steps'], curvalue)
+
+                if addrdata is not None:
+                    self._task_store_address_data(instance_id, portsymbol, addrdata)
+
+                    if actuator_uri not in used_actuators:
+                        used_actuators.append(actuator_uri)
+
+                elif is_cc:
+                    # Control Chain is initialized but addressing failed to load (likely due to missing hardware)
+                    # Set this flag so we wait for devices later
+                    retry_cc_addrs = True
+
+        # Load HMI and Control Chain addressings
+        for actuator_uri in used_actuators:
+            if self.get_actuator_type(actuator_uri) == self.ADDRESSING_TYPE_HMI:
+                yield gen.Task(self.hmi_load_first, actuator_uri)
+            elif self.get_actuator_type(actuator_uri) == self.ADDRESSING_TYPE_CC and cc_initialized:
+                self.cc_load_all(actuator_uri)
+
+        # Load MIDI addressings
+        # NOTE: MIDI addressings are not stored in addressings.json.
+        #       They must be loaded by calling 'add_midi' before calling this function.
+        self.midi_load_everything()
+
+        # Unset retry flag if at least 1 Control Chain device is connected
+        if retry_cc_addrs and len(self.cc_metadata) > 0:
+            retry_cc_addrs = False
+
+        # Check if we need to wait for Control Chain
+        if not first_load or (cc_initialized and not retry_cc_addrs):
+            self.waiting_for_cc = False
+            return
+
+        if retry_cc_addrs:
+            # Wait for any Control Chain devices to appear, with 10s maximum time-out
+            print("NOTE: Waiting for Control Chain devices to appear")
+            for i in range(10):
+                yield gen.sleep(1)
+                if len(self.cc_metadata) > 0 and self.cchain.initialized:
+                    break
+
+        elif not self.cchain.initialized:
+            # Control Chain was not initialized yet by this point, wait for it
+            # 'wait_initialized' will time-out in 10s if nothing happens
+            print("NOTE: Waiting for Control Chain to initialize")
+            yield gen.Task(self.cchain.wait_initialized)
+
+        self.waiting_for_cc = False
+
+        for cb in self.waiting_for_cc_cbs:
+            cb()
+        self.waiting_for_cc_cbs = []
+
+        # Don't bother continuing if there are no Control Chain addressesings
+        if not has_cc_addrs:
+            return
+
+        # Don't bother continuing if there are no Control Chain devices available
+        if len(self.cc_metadata) == 0:
+            print("WARNING: Pedalboard has Control Chain addressings but no devices are available")
+            return
+
+        # reset used actuators, only load for those that succeed
+        used_actuators = []
+
+        # Re-do the same as we did above
+        for actuator_uri, addrs in data.items():
+            if self.get_actuator_type(actuator_uri) != self.ADDRESSING_TYPE_CC:
+                continue
+            for addr in addrs:
+                instance   = addr['instance'].replace("/graph/","",1)
+                portsymbol = addr['port']
+
+                try:
+                    instance_id, plugin_uri = instances[instance]
+                except KeyError:
+                    print("ERROR: An instance specified in addressings file is invalid")
+                    continue
+
+                if len(skippedPorts) > 0 and instance+"/"+portsymbol in skippedPorts:
+                    print("NOTE: An incompatible addressing has been skipped, port:", instance, portsymbol)
                     continue
 
                 curvalue = self._task_get_port_value(instance_id, portsymbol)
@@ -177,17 +301,7 @@ class Addressings(object):
                         used_actuators.append(actuator_uri)
 
         for actuator_uri in used_actuators:
-            actuator_type = self.get_actuator_type(actuator_uri)
-
-            if actuator_type == self.ADDRESSING_TYPE_HMI:
-                yield gen.Task(self.hmi_load_first, actuator_uri)
-
-            elif actuator_type == self.ADDRESSING_TYPE_CC:
-                self.cc_load_all(actuator_uri)
-
-        # NOTE: MIDI addressings are not stored in addressings.json.
-        #       They must be loaded by calling 'add_midi' before calling this function.
-        self.midi_load_everything()
+            self.cc_load_all(actuator_uri)
 
     def save(self, bundlepath, instances):
         addressings = {}
@@ -197,7 +311,7 @@ class Addressings(object):
             addrs2 = []
             for addr in addrs['addrs']:
                 addrs2.append({
-                    'instance': instances[addr['instance_id']].replace("/graph/","",1),
+                    'instance': instances[addr['instance_id']],
                     'port'    : addr['port'],
                     'label'   : addr['label'],
                     'minimum' : addr['minimum'],
@@ -221,31 +335,31 @@ class Addressings(object):
             addressings[uri] = addrs2
 
         # Write addressings to disk
-        with open(os.path.join(bundlepath, "addressings.json"), 'w') as fh:
+        with TextFileFlusher(os.path.join(bundlepath, "addressings.json")) as fh:
             json.dump(addressings, fh)
 
     def registerMappings(self, msg_callback, instances):
         # HMI
         for uri, addrs in self.hmi_addressings.items():
             for addr in addrs['addrs']:
-                msg_callback("hw_map %s %s %s %s %f %f %d" % (instances[addr['instance_id']],
+                msg_callback("hw_map %s %s %s %f %f %d %s" % (instances[addr['instance_id']],
                                                               addr['port'],
                                                               uri,
-                                                              addr['label'],
                                                               addr['minimum'],
                                                               addr['maximum'],
-                                                              addr['steps']))
+                                                              addr['steps'],
+                                                              addr['label'].replace(" ","_")))
 
         # Control Chain
         for uri, addrs in self.cc_addressings.items():
             for addr in addrs:
-                msg_callback("hw_map %s %s %s %s %f %f %d" % (instances[addr['instance_id']],
+                msg_callback("hw_map %s %s %s %f %f %d %s" % (instances[addr['instance_id']],
                                                               addr['port'],
                                                               uri,
-                                                              addr['label'],
                                                               addr['minimum'],
                                                               addr['maximum'],
-                                                              addr['steps']))
+                                                              addr['steps'],
+                                                              addr['label'].replace(" ","_")))
 
         # MIDI
         for uri, addrs in self.midi_addressings.items():
@@ -266,6 +380,7 @@ class Addressings(object):
             print("ERROR: Trying to address the wrong way, stop!")
             return None
 
+        unit = "none"
         options = []
 
         if portsymbol == ":presets":
@@ -275,6 +390,22 @@ class Addressings(object):
                 return None
 
             value, maximum, options, spreset = data
+
+        elif instance_id == PEDALBOARD_INSTANCE_ID:
+            if portsymbol == ":bpb":
+                pprops = ["integer"]
+                unit = "/4"
+
+            elif portsymbol == ":bpm":
+                pprops = ["tapTempo"]
+                unit = "BPM"
+
+            elif portsymbol == ":rolling":
+                pprops = ["toggled"]
+
+            else:
+                print("ERROR: Trying to address wrong pedalboard port:", portsymbol)
+                return None
 
         elif portsymbol != ":bypass":
             for port_info in get_plugin_control_inputs_and_monitored_outputs(plugin_uri)['inputs']:
@@ -286,6 +417,9 @@ class Addressings(object):
 
             # useful info about this port
             pprops = port_info["properties"]
+
+            if "symbol" in port_info["units"].keys():
+                unit = port_info["units"]["symbol"]
 
             if "enumeration" in pprops and len(port_info["scalePoints"]) > 0:
                 options = [(sp["value"], sp["label"]) for sp in port_info["scalePoints"]]
@@ -301,6 +435,7 @@ class Addressings(object):
             'minimum'     : minimum,
             'maximum'     : maximum,
             'steps'       : steps,
+            'unit'        : unit,
             'options'     : options,
         }
 
@@ -309,11 +444,9 @@ class Addressings(object):
         if actuator_type == self.ADDRESSING_TYPE_HMI:
             if portsymbol == ":bypass":
                 hmitype = HMI_ADDRESSING_TYPE_BYPASS
-                hmiunit = "(none)"
 
             elif portsymbol == ":presets":
                 hmitype = HMI_ADDRESSING_TYPE_ENUMERATION|HMI_ADDRESSING_TYPE_INTEGER
-                hmiunit = "(none)"
 
             else:
                 if "toggled" in pprops:
@@ -334,8 +467,6 @@ class Addressings(object):
                 if "enumeration" in pprops and len(port_info["scalePoints"]) > 0:
                     hmitype |= HMI_ADDRESSING_TYPE_ENUMERATION
 
-                hmiunit = port_info["units"]["symbol"] if "symbol" in port_info["units"] else "none"
-
             if hmitype & HMI_ADDRESSING_TYPE_SCALE_POINTS:
                 if value not in [o[0] for o in options]:
                     print("ERROR: current value '%f' for '%s' is not a valid scalepoint" % (value, portsymbol))
@@ -343,7 +474,6 @@ class Addressings(object):
 
             # hmi specific
             addressing_data['hmitype'] = hmitype
-            addressing_data['hmiunit'] = hmiunit
 
             addressings = self.hmi_addressings[actuator_uri]
             addressings['idx'] = len(addressings['addrs'])
@@ -352,7 +482,6 @@ class Addressings(object):
         elif actuator_type == self.ADDRESSING_TYPE_CC:
             if actuator_uri not in self.cc_addressings.keys():
                 print("ERROR: Can't load addressing for unavailable hardware '%s'" % actuator_uri)
-                print(self.cc_addressings.keys())
                 return None
 
             addressings = self.cc_addressings[actuator_uri]
@@ -401,6 +530,37 @@ class Addressings(object):
 
         self._task_addressing(actuator_type, actuator_hw, addressing_data, callback)
 
+    @gen.coroutine
+    def load_current(self, actuator_uris, skippedPort):
+        for actuator_uri in actuator_uris:
+            actuator_type = self.get_actuator_type(actuator_uri)
+
+            if actuator_type == Addressings.ADDRESSING_TYPE_HMI:
+                yield gen.Task(self.hmi_load_current, actuator_uri, skippedPort=skippedPort)
+
+            elif actuator_type == Addressings.ADDRESSING_TYPE_CC:
+                # FIXME: we need a way to change CC value, without re-addressing
+                actuator_cc = self.cc_metadata[actuator_uri]['hw_id']
+                addressings = self.cc_addressings[actuator_uri]
+
+                for addressing in addressings:
+                    if (addressing['instance_id'], addressing['port']) == skippedPort:
+                        continue
+                    data = {
+                        'instance_id': addressing['instance_id'],
+                        'port'       : addressing['port'],
+                        'label'      : addressing['label'],
+                        'value'      : addressing['value'],
+                        'minimum'    : addressing['minimum'],
+                        'maximum'    : addressing['maximum'],
+                        'steps'      : addressing['steps'],
+                        'unit'       : addressing['unit'],
+                        'options'    : addressing['options'],
+                    }
+                    yield gen.Task(self._task_unaddressing, self.ADDRESSING_TYPE_CC, data['instance_id'], data['port'])
+                    yield gen.Task(self._task_addressing, self.ADDRESSING_TYPE_CC, actuator_cc, data)
+
+    # NOTE: make sure to call hmi_load_current() afterwards if removing HMI addressings
     def remove(self, addressing_data):
         actuator_uri  = addressing_data['actuator_uri']
         actuator_type = self.get_actuator_type(actuator_uri)
@@ -414,7 +574,6 @@ class Addressings(object):
 
             if addressings['idx'] == index:
                 addressings['idx'] -= 1
-                # FIXME need to show next after this
 
         elif actuator_type == self.ADDRESSING_TYPE_CC:
             addressings = self.cc_addressings[actuator_uri]
@@ -427,7 +586,7 @@ class Addressings(object):
     # -----------------------------------------------------------------------------------------------------------------
     # HMI specific functions
 
-    def hmi_load_current(self, actuator_uri, callback):
+    def hmi_load_current(self, actuator_uri, callback, skippedPort = (None, None)):
         actuator_hmi      = self.hmi_uri2hw_map[actuator_uri]
         addressings       = self.hmi_addressings[actuator_uri]
         addressings_addrs = addressings['addrs']
@@ -435,12 +594,22 @@ class Addressings(object):
         addressings_len   = len(addressings['addrs'])
 
         if addressings_len == 0:
-            print("ERROR: hmi_load_current failed, empty list")
             callback(False)
             return
 
+        if addressings_len == addressings_idx:
+            canSkipAddressing = False
+            addressings['idx'] = addressings_idx = addressings_len - 1
+        else:
+            canSkipAddressing = True
+
         # current addressing data
         addressing_data = addressings_addrs[addressings_idx].copy()
+
+        if canSkipAddressing and (addressing_data['instance_id'], addressing_data['port']) == skippedPort:
+            print("skippedPort", skippedPort)
+            callback(True)
+            return
 
         # needed fields for addressing task
         addressing_data['addrs_idx'] = addressings_idx+1
@@ -473,15 +642,13 @@ class Addressings(object):
         # ready to load
         self.hmi_load_current(actuator_uri, callback)
 
-    def hmi_load_next_hw(self, actuator_hw, callback):
-        actuator_uri      = self.hmi_hw2uri_map[actuator_hw]
-        addressings       = self.hmi_addressings[actuator_uri]
-        addressings_addrs = addressings['addrs']
-        addressings_len   = len(addressings['addrs'])
+    def hmi_load_next_hw(self, actuator_hmi, callback):
+        actuator_uri    = self.hmi_hw2uri_map[actuator_hmi]
+        addressings     = self.hmi_addressings[actuator_uri]
+        addressings_len = len(addressings['addrs'])
 
         if addressings_len == 0:
-            #self.hmi.control_clean(actuator_hmi[0], actuator_hmi[1], actuator_hmi[2], actuator_hmi[3], callback)
-            callback(False)
+            print("ERROR: hmi_load_next_hw failed, empty list")
             return
 
         # jump to next available addressing
@@ -493,18 +660,11 @@ class Addressings(object):
     # -----------------------------------------------------------------------------------------------------------------
     # Control Chain specific functions
 
-    def cc_hardware_added(self, dev_uri, label, version):
-        self._task_hw_added(dev_uri, label, version)
+    def cc_hardware_added(self, dev_id, dev_uri, label, labelsuffix, version):
+        print("cc_hardware_added", dev_id, dev_uri, label, labelsuffix, version)
+        self._task_hw_added(dev_uri, label, labelsuffix, version)
 
-    def cc_actuator_added(self, dev_id, actuator_id, metadata):
-        actuator_uri = metadata['uri']
-        self.cc_metadata[actuator_uri] = metadata.copy()
-        self.cc_metadata[actuator_uri]['hw_id'] = (dev_id, actuator_id)
-        self.cc_addressings[actuator_uri] = []
-        print(self.cc_addressings.keys())
-        self._task_act_added(metadata)
-
-    def cc_actuator_removed(self, dev_id):
+    def cc_hardware_removed(self, dev_id, dev_uri, label, version):
         removed_actuators = []
 
         for actuator in self.cc_metadata.values():
@@ -512,9 +672,21 @@ class Addressings(object):
                 removed_actuators.append(actuator['uri'])
 
         for actuator_uri in removed_actuators:
+            print("cc_actuator_removed", actuator_uri)
             self.cc_metadata.pop(actuator_uri)
             self.cc_addressings.pop(actuator_uri)
             self._task_act_removed(actuator_uri)
+
+        print("cc_hardware_removed", dev_id, dev_uri, label, version)
+        self._task_hw_removed(dev_uri, label, version)
+
+    def cc_actuator_added(self, dev_id, actuator_id, metadata):
+        print("cc_actuator_added", metadata['uri'])
+        actuator_uri = metadata['uri']
+        self.cc_metadata[actuator_uri] = metadata.copy()
+        self.cc_metadata[actuator_uri]['hw_id'] = (dev_id, actuator_id)
+        self.cc_addressings[actuator_uri] = []
+        self._task_act_added(metadata)
 
     @gen.coroutine
     def cc_load_all(self, actuator_uri):
@@ -530,9 +702,17 @@ class Addressings(object):
                 'minimum'    : addressing['minimum'],
                 'maximum'    : addressing['maximum'],
                 'steps'      : addressing['steps'],
+                'unit'       : addressing['unit'],
                 'options'    : addressing['options'],
             }
             yield gen.Task(self._task_addressing, self.ADDRESSING_TYPE_CC, actuator_cc, data)
+
+    def wait_for_cc_if_needed(self, callback):
+        if not self.waiting_for_cc:
+            callback()
+            return
+
+        self.waiting_for_cc_cbs.append(callback)
 
     # -----------------------------------------------------------------------------------------------------------------
     # MIDI specific functions
@@ -557,12 +737,20 @@ class Addressings(object):
     # Utilities
 
     def create_midi_cc_uri(self, channel, controller):
+        if controller == MIDI_PITCHBEND_AS_CC:
+            return "%sCh.%d_Pbend" % (kMidiCustomPrefixURI, channel+1)
         return "%sCh.%i_CC#%i" % (kMidiCustomPrefixURI, channel+1, controller)
 
     def get_midi_cc_from_uri(self, uri):
         data = uri.replace(kMidiCustomPrefixURI+"Ch.","",1).split("_CC#",1)
         if len(data) == 2:
-            return (int(data[0])-1, int(data[1]))
+            channel = int(data[0])-1
+            if data[1].endswith("_Pbend"):
+                controller = MIDI_PITCHBEND_AS_CC
+            else:
+                controller = int(data[1])
+            return (channel, controller)
+
         print("ERROR: get_midi_cc_from_uri() called with invalid uri:", uri)
         return (-1,-1)
 
@@ -572,11 +760,9 @@ class Addressings(object):
     def get_actuator_type(self, actuator_uri):
         if actuator_uri.startswith("/hmi/"):
             return self.ADDRESSING_TYPE_HMI
-        if actuator_uri.startswith("/cc/"):
-            return self.ADDRESSING_TYPE_CC
         if actuator_uri.startswith(kMidiCustomPrefixURI):
             return self.ADDRESSING_TYPE_MIDI
-        return self.ADDRESSING_TYPE_NONE
+        return self.ADDRESSING_TYPE_CC
 
     def get_presets_as_options(self, instance_id):
         pluginData = self._task_get_plugin_data(instance_id)

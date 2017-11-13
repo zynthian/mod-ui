@@ -342,8 +342,7 @@ hr.dotted {
     color: #666;
     display: none;
   }
-  #mod-show-midi-port,
-  .mod-bypass,
+  #mod-show-midi-port, #mod-transport-icon, .mod-bypass,
   #mod-cpu, #mod-ram, #mod-xruns, #mod-buffersize {
     background-position: 8px 50%;
     background-repeat: no-repeat;
@@ -366,6 +365,15 @@ hr.dotted {
   }
   #mod-show-midi-port {
     background-image: url(../img/icons/25/midi.png);
+  }
+  #mod-transport-icon {
+    background-image: url(../img/icons/25/transport.png);
+    font-family: monospace;
+    width: 10.5em !important;
+    text-align: right;
+    &.playing {
+      background-color: @brand-primary;
+    }
   }
   .mod-bypass {
     background-image: url(../img/icons/25/bypass.png);
@@ -448,8 +456,9 @@ hr.dotted {
       background-image: url(../img/icons/36/disconnect.png);
     }
   }
-  #mod-cloud {
-    background-image: url(../img/icons/36/cloud.png);
+
+  #mod-devices {
+    background-image: url(../img/icons/36/control-chain.png);
   }
 }
 
@@ -629,13 +638,12 @@ header#pedalboard-actions {
   }
 }
 
+#mod-devices-window,
 #mod-upgrade {
   background: white;
   color: black;
   font-size: 15px;
   max-height: 350px;
-  max-width: 450px;
-  min-width: 350px;
   overflow: auto;
   position: absolute;
   right: 10px;
@@ -648,8 +656,27 @@ header#pedalboard-actions {
   }
   .progressbar {
     background-color: #8888ff;
-    height: 20px;
+    height: 18px;
   }
+}
+
+#mod-devices-window {
+  max-width: 600px;
+  min-width: 500px;
+}
+
+#mod-upgrade {
+  max-width: 450px;
+  min-width: 350px;
+}
+
+#mod-transport-window {
+  bottom: 48px;
+  right: 310px;
+  top: initial;
+  left: initial;
+  background: rgba(17, 17, 17, 0.9);
+  padding: 50px 40px 15px 40px;
 }
 
 #plugins-library {
@@ -954,6 +981,7 @@ header#pedalboard-actions {
     z-index: 40;
     .box {
       margin-top: 3em;
+      margin-bottom: 3em;
       background-color: #111;
       padding: 15px;
       border: 2px solid #333;
@@ -987,7 +1015,6 @@ header#pedalboard-actions {
       height: 100%;
       display: block;
       position: a;
-      padding-bottom: 20%;
       padding-left: 45px;
       @gradient1: rgba(17,17,17,0.1);
       @gradient2: rgba(17,17,17,1);
@@ -1212,7 +1239,7 @@ header#pedalboard-actions {
         }
       }
     }
-    .pedalboard-href {
+    .online-button-href {
       display: inline-block;
       margin-bottom: 10px;
     }
