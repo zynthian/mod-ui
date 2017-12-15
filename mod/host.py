@@ -1073,6 +1073,10 @@ class Host(object):
         self.hasSerialMidiIn = has_serial_midi_input_port()
         self.hasSerialMidiOut = has_serial_midi_output_port()
         self.midi_aggregated_mode = has_midi_merger_output_port() or has_midi_broadcaster_input_port()
+        
+        #Add monitor ports for Zynthian routing
+        self.audioportsIn.append("monitor_out_1")
+        self.audioportsIn.append("monitor_out_2")
 
         return True
 
@@ -3012,6 +3016,12 @@ class Host(object):
                 else:
                     data[2] = "capture_1"
 
+            #Zynthian input monitors:
+            if data[2].startswith("monitor_out_"):
+                num = data[2].replace("monitor_out_","",1)
+                return "mod-monitor:out_%s" % num
+            #------------------------
+
             # Default guess
             return "system:%s" % data[2]
 
@@ -3033,6 +3043,8 @@ class Host(object):
                 self.msg_callback("connect %s %s" % (port_from, port_to))
             else:
                 print("ERROR: backend failed to connect ports: '%s' => '%s'" % (port_from, port_to))
+                self.msg_callback("ERROR connecting %s %s" % (self._fix_host_connection_port(port_from),
+                                              self._fix_host_connection_port(port_to)))
 
         self.send_modified("connect %s %s" % (self._fix_host_connection_port(port_from),
                                               self._fix_host_connection_port(port_to)),
