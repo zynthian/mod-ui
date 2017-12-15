@@ -598,6 +598,10 @@ class Host(object):
 
         for port in get_jack_hardware_ports(True, True):
             self.audioportsOut.append(port.split(":",1)[-1])
+        
+        #Add monitor ports for Zynthian routing
+        self.audioportsIn.append("monitor_out_1")
+        self.audioportsIn.append("monitor_out_2")
 
     def close_jack(self):
         close_jack()
@@ -1783,6 +1787,11 @@ class Host(object):
             if data[2].startswith("nooice_capture_"):
                 num = data[2].replace("nooice_capture_","",1)
                 return "nooice%s:nooice_capture_%s" % (num, num)
+            #Zynthian input monitors:
+            if data[2].startswith("monitor_out_"):
+                num = data[2].replace("monitor_out_","",1)
+                return "mod-monitor:out_%s" % num
+            #------------------------
             return "system:%s" % data[2]
 
         instance    = "/graph/%s" % data[2]
@@ -1803,6 +1812,8 @@ class Host(object):
                 self.msg_callback("connect %s %s" % (port_from, port_to))
             else:
                 print("ERROR: backend failed to connect ports: '%s' => '%s'" % (port_from, port_to))
+                self.msg_callback("ERROR connecting %s %s" % (self._fix_host_connection_port(port_from),
+                                              self._fix_host_connection_port(port_to)))
 
         self.send_modified("connect %s %s" % (self._fix_host_connection_port(port_from),
                                               self._fix_host_connection_port(port_to)),
