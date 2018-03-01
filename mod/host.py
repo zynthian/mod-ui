@@ -2906,6 +2906,31 @@ _:b%i
                                                                      minimum,
                                                                      maximum), callback, datatype='boolean')
 
+        # MIDI map addressing (by jofemodo@zynthian.org)
+        if self.addressings.get_actuator_type(actuator_uri)==Addressings.ADDRESSING_TYPE_MIDI:
+            channel, controller = self.addressings.get_midi_cc_from_uri(actuator_uri)
+
+            if portsymbol == ":bypass":
+                pluginData['bypassCC'] = (channel, controller)
+            else:
+                pluginData['midiCCs'][portsymbol] = (channel, controller, minimum, maximum)
+
+            self.pedalboard_modified = True
+            pluginData['addressings'][portsymbol] = self.addressings.add_midi(instance_id, portsymbol, channel, controller, minimum, maximum)
+
+            data = {
+                'instance_id': instance_id,
+                'port'       : portsymbol,
+                'minimum'    : minimum,
+                'maximum'    : maximum,
+                # MIDI specific
+                'midichannel': channel,
+                'midicontrol': controller,
+            }
+            yield gen.Task(self.addr_task_addressing, Addressings.ADDRESSING_TYPE_MIDI, actuator_uri, data)
+            callback(True)
+            return
+
         if value < minimum:
             value = minimum
             needsValueChange = True
