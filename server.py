@@ -30,6 +30,7 @@ def create_dummy_credentials():
 
 ROOT = os.path.dirname(os.path.realpath(__file__))
 DATA_DIR = join(ROOT, 'data')
+os.makedirs(DATA_DIR, exist_ok=True)
 
 os.environ['MOD_DEV_ENVIRONMENT'] = os.environ.get("MOD_DEV_ENVIRONMENT", '1')
 os.environ['MOD_DATA_DIR'] = DATA_DIR
@@ -42,13 +43,8 @@ os.environ['MOD_DEVICE_KEY'] = join(DATA_DIR, 'rsa')
 os.environ['MOD_DEVICE_TAG'] = join(DATA_DIR, 'tag')
 os.environ['MOD_DEVICE_UID'] = join(DATA_DIR, 'uid')
 os.environ['MOD_API_KEY'] = join(DATA_DIR, 'mod_api_key.pub')
-os.environ['MOD_SCREENSHOT_JS'] = './screenshot.js'
 
 create_dummy_credentials()
-
-path_phantom = join(ROOT, 'phantomjs-1.9.0-linux-x86_64/bin/phantomjs')
-if os.path.exists(path_phantom):
-    os.environ['MOD_PHANTOM_BINARY'] = path_phantom
 
 if not os.path.isfile(os.environ['MOD_API_KEY']):
     print('WARN: Missing file {0} with the public API KEY'.format(os.environ['MOD_API_KEY']))

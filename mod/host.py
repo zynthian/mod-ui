@@ -41,18 +41,18 @@ from mod import safe_json_load, symbolify, TextFileFlusher
 from mod.addressings import Addressings
 from mod.bank import list_banks, get_last_bank_and_pedalboard, save_last_bank_and_pedalboard
 from mod.protocol import Protocol, ProtocolError, process_resp
-from mod.utils import (charPtrToString,
-                       is_bundle_loaded, add_bundle_to_lilv_world, remove_bundle_from_lilv_world, rescan_plugin_presets,
-                       get_plugin_info, get_plugin_control_inputs_and_monitored_outputs,
-                       get_pedalboard_info, get_state_port_values, list_plugins_in_bundle,
-                       get_all_pedalboards, get_pedalboard_plugin_values,
-                       init_jack, close_jack, get_jack_data, init_bypass,
-                       get_jack_port_alias, get_jack_hardware_ports, has_serial_midi_input_port, has_serial_midi_output_port,
-                       connect_jack_ports, disconnect_jack_ports, get_truebypass_value, set_util_callbacks,
-                       kPedalboardTimeAvailableBPB, kPedalboardTimeAvailableBPM, kPedalboardTimeAvailableRolling)
-from mod.settings import (APP, LOG, DEFAULT_PEDALBOARD, LV2_PEDALBOARDS_DIR, PREFERENCES_JSON_FILE,
-                          PEDALBOARD_INSTANCE, PEDALBOARD_INSTANCE_ID, PEDALBOARD_URI,
-                          TUNER_URI, TUNER_INSTANCE_ID, TUNER_INPUT_PORT, TUNER_MONITOR_PORT)
+from modtools.utils import (
+    charPtrToString, is_bundle_loaded, add_bundle_to_lilv_world, remove_bundle_from_lilv_world, rescan_plugin_presets,
+    get_plugin_info, get_plugin_control_inputs_and_monitored_outputs, get_pedalboard_info, get_state_port_values,
+    list_plugins_in_bundle, get_all_pedalboards, get_pedalboard_plugin_values, init_jack, close_jack, get_jack_data,
+    init_bypass, get_jack_port_alias, get_jack_hardware_ports, has_serial_midi_input_port, has_serial_midi_output_port,
+    connect_jack_ports, disconnect_jack_ports, get_truebypass_value, set_util_callbacks, kPedalboardTimeAvailableBPB,
+    kPedalboardTimeAvailableBPM, kPedalboardTimeAvailableRolling
+)
+from mod.settings import (
+    APP, LOG, DEFAULT_PEDALBOARD, LV2_PEDALBOARDS_DIR, PEDALBOARD_INSTANCE, PEDALBOARD_INSTANCE_ID, PEDALBOARD_URI,
+    TUNER_URI, TUNER_INSTANCE_ID, TUNER_INPUT_PORT, TUNER_MONITOR_PORT
+)
 from mod.tuner import find_freqnotecents
 
 BANK_CONFIG_NOTHING         = 0
@@ -599,7 +599,11 @@ class Host(object):
         for port in get_jack_hardware_ports(True, True):
             self.audioportsOut.append(port.split(":",1)[-1])
         
+<<<<<<< HEAD
         #Add monitor ports for Zynthian routing
+=======
+        # Add monitor ports for Zynthian routing
+>>>>>>> zynthian-single-commit
         self.audioportsIn.append("monitor_out_1")
         self.audioportsIn.append("monitor_out_2")
 
@@ -1065,8 +1069,9 @@ class Host(object):
         websocket.write_message("truebypass %i %i" % (get_truebypass_value(False), get_truebypass_value(True)))
         websocket.write_message("loading_start %d %d" % (self.pedalboard_empty, self.pedalboard_modified))
         websocket.write_message("size %d %d" % (self.pedalboard_size[0], self.pedalboard_size[1]))
+
         if self.pedalboard_path:
-          websocket.write_message("bundlepath %s" % self.pedalboard_path)
+            websocket.write_message("bundlepath %s" % self.pedalboard_path)
 
         for dev_uri, label, labelsuffix, version in self.addressings.cchain.hw_versions.values():
             websocket.write_message("hw_add %s %s %s %s" % (dev_uri,
@@ -1787,11 +1792,13 @@ class Host(object):
             if data[2].startswith("nooice_capture_"):
                 num = data[2].replace("nooice_capture_","",1)
                 return "nooice%s:nooice_capture_%s" % (num, num)
-            #Zynthian input monitors:
+
+            # Zynthian input monitors: ---------------------------
             if data[2].startswith("monitor_out_"):
                 num = data[2].replace("monitor_out_","",1)
                 return "mod-monitor:out_%s" % num
-            #------------------------
+            # End Zynthian input monitors ------------------------
+            
             return "system:%s" % data[2]
 
         instance    = "/graph/%s" % data[2]
@@ -1818,6 +1825,7 @@ class Host(object):
         self.send_modified("connect %s %s" % (self._fix_host_connection_port(port_from),
                                               self._fix_host_connection_port(port_to)),
                            host_callback, datatype='boolean')
+        self.msg_callback("ERROR connecting %s %s" % (self._fix_host_connection_port(port_from), self._fix_host_connection_port(port_to)))
 
     def disconnect(self, port_from, port_to, callback):
         def host_callback(ok):
@@ -2905,6 +2913,30 @@ _:b%i
                                                                      portsymbol,
                                                                      minimum,
                                                                      maximum), callback, datatype='boolean')
+        # MIDI map addressing (by jofemodo@zynthian.org)
+        if self.addressings.get_actuator_type(actuator_uri)==Addressings.ADDRESSING_TYPE_MIDI:
+            channel, controller = self.addressings.get_midi_cc_from_uri(actuator_uri)
+
+            if portsymbol == ":bypass":
+                pluginData['bypassCC'] = (channel, controller)
+            else:
+                pluginData['midiCCs'][portsymbol] = (channel, controller, minimum, maximum)
+
+            self.pedalboard_modified = True
+            pluginData['addressings'][portsymbol] = self.addressings.add_midi(instance_id, portsymbol, channel, controller, minimum, maximum)
+
+            data = {
+                'instance_id': instance_id,
+                'port'       : portsymbol,
+                'minimum'    : minimum,
+                'maximum'    : maximum,
+                # MIDI specific
+                'midichannel': channel,
+                'midicontrol': controller,
+            }
+            yield gen.Task(self.addr_task_addressing, Addressings.ADDRESSING_TYPE_MIDI, actuator_uri, data)
+            callback(True)
+            return
 
         # MIDI map addressing (by jofemodo@zynthian.org)
         if self.addressings.get_actuator_type(actuator_uri)==Addressings.ADDRESSING_TYPE_MIDI:
