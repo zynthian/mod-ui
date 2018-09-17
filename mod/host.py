@@ -599,11 +599,7 @@ class Host(object):
         for port in get_jack_hardware_ports(True, True):
             self.audioportsOut.append(port.split(":",1)[-1])
         
-<<<<<<< HEAD
-        #Add monitor ports for Zynthian routing
-=======
         # Add monitor ports for Zynthian routing
->>>>>>> zynthian-single-commit
         self.audioportsIn.append("monitor_out_1")
         self.audioportsIn.append("monitor_out_2")
 
