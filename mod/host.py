@@ -174,7 +174,7 @@ class Host(object):
         self.processing_pending_flag = False
         self.init_plugins_data()
 
-        if APP and os.getenv("MOD_LIVE_ISO") is not None:
+        if (APP and os.getenv("MOD_LIVE_ISO") is not None) or os.getenv("MOD_SYSTEM_OUTPUT"):
             self.jack_hwin_prefix  = "system:playback_"
             self.jack_hwout_prefix = "system:capture_"
         else:
@@ -596,6 +596,10 @@ class Host(object):
 
         for port in get_jack_hardware_ports(True, True):
             self.audioportsOut.append(port.split(":",1)[-1])
+        
+        # Add monitor ports for Zynthian routing
+        self.audioportsIn.append("monitor_out_1")
+        self.audioportsIn.append("monitor_out_2")
 
     def close_jack(self):
         close_jack()
@@ -1059,6 +1063,8 @@ class Host(object):
         websocket.write_message("truebypass %i %i" % (get_truebypass_value(False), get_truebypass_value(True)))
         websocket.write_message("loading_start %d %d" % (self.pedalboard_empty, self.pedalboard_modified))
         websocket.write_message("size %d %d" % (self.pedalboard_size[0], self.pedalboard_size[1]))
+        if self.pedalboard_path:
+            websocket.write_message("bundlepath %s" % self.pedalboard_path)
 
         for dev_uri, label, labelsuffix, version in self.addressings.cchain.hw_versions.values():
             websocket.write_message("hw_add %s %s %s %s" % (dev_uri,
@@ -1779,6 +1785,13 @@ class Host(object):
             if data[2].startswith("nooice_capture_"):
                 num = data[2].replace("nooice_capture_","",1)
                 return "nooice%s:nooice_capture_%s" % (num, num)
+            
+            # Zynthian input monitors:
+            if data[2].startswith("monitor_out_"):
+                num = data[2].replace("monitor_out_","",1)
+                return "mod-monitor:out_%s" % num
+            # End Zynthian input monitors------------------------
+            
             return "system:%s" % data[2]
 
         instance    = "/graph/%s" % data[2]
@@ -1803,6 +1816,7 @@ class Host(object):
         self.send_modified("connect %s %s" % (self._fix_host_connection_port(port_from),
                                               self._fix_host_connection_port(port_to)),
                            host_callback, datatype='boolean')
+        self.msg_callback("ERROR connecting %s %s" % (self._fix_host_connection_port(port_from), self._fix_host_connection_port(port_to)))
 
     def disconnect(self, port_from, port_to, callback):
         def host_callback(ok):
@@ -1846,6 +1860,7 @@ class Host(object):
 
         self.msg_callback("loading_start %i 0" % int(isDefault))
         self.msg_callback("size %d %d" % (pb['width'],pb['height']))
+        self.msg_callback("bundlepath %s" % bundlepath)
 
         # MIDI Devices might change port names at anytime
         # To properly restore MIDI HW connections we need to map the "old" port names (from project)
@@ -2884,6 +2899,30 @@ _:b%i
                                                                      portsymbol,
                                                                      minimum,
                                                                      maximum), callback, datatype='boolean')
+        # MIDI map addressing (by jofemodo@zynthian.org)
+        if self.addressings.get_actuator_type(actuator_uri)==Addressings.ADDRESSING_TYPE_MIDI:
+            channel, controller = self.addressings.get_midi_cc_from_uri(actuator_uri)
+
+            if portsymbol == ":bypass":
+                pluginData['bypassCC'] = (channel, controller)
+            else:
+                pluginData['midiCCs'][portsymbol] = (channel, controller, minimum, maximum)
+
+            self.pedalboard_modified = True
+            pluginData['addressings'][portsymbol] = self.addressings.add_midi(instance_id, portsymbol, channel, controller, minimum, maximum)
+
+            data = {
+                'instance_id': instance_id,
+                'port'       : portsymbol,
+                'minimum'    : minimum,
+                'maximum'    : maximum,
+                # MIDI specific
+                'midichannel': channel,
+                'midicontrol': controller,
+            }
+            yield gen.Task(self.addr_task_addressing, Addressings.ADDRESSING_TYPE_MIDI, actuator_uri, data)
+            callback(True)
+            return
 
         if value < minimum:
             value = minimum
