@@ -1114,6 +1114,10 @@ class Host(object):
         if self.hasSerialMidiIn:
             websocket.write_message("add_hw_port /graph/serial_midi_in midi 0 Serial_MIDI_In 0")
 
+        # Zynthian Router 
+        #if self.hasZynMidiRouter:
+        websocket.write_message("add_hw_port /graph/zynthian_main_out midi 0 Zynthian_Main_Out 1")
+
         ports = get_jack_hardware_ports(False, False)
         for i in range(len(ports)):
             name = ports[i]
@@ -1125,11 +1129,16 @@ class Host(object):
             else:
                 title = name.split(":",1)[-1].title()
             title = title.replace(" ","_")
-            websocket.write_message("add_hw_port /graph/%s midi 0 %s %i" % (name.split(":",1)[-1], title, i+1))
+            websocket.write_message("add_hw_port /graph/%s midi 0 %s %i" % (name.split(":",1)[-1], title, i+2))
 
         # MIDI Out
         if self.hasSerialMidiOut:
             websocket.write_message("add_hw_port /graph/serial_midi_out midi 1 Serial_MIDI_Out 0")
+
+        # Zynthian Router 
+        #if self.hasZynMidiRouter:
+        websocket.write_message("add_hw_port /graph/zynthian_main_in midi 1 Zynthian_Main_In 1")
+
 
         ports = get_jack_hardware_ports(False, True)
         for i in range(len(ports)):
@@ -1142,7 +1151,7 @@ class Host(object):
             else:
                 title = name.split(":",1)[-1].title()
             title = title.replace(" ","_")
-            websocket.write_message("add_hw_port /graph/%s midi 1 %s %i" % (name.split(":",1)[-1], title, i+1))
+            websocket.write_message("add_hw_port /graph/%s midi 1 %s %i" % (name.split(":",1)[-1], title, i+2))
 
         rinstances = {
             PEDALBOARD_INSTANCE_ID: PEDALBOARD_INSTANCE
@@ -1789,11 +1798,16 @@ class Host(object):
                 num = data[2].replace("nooice_capture_","",1)
                 return "nooice%s:nooice_capture_%s" % (num, num)
 
-            # Zynthian input monitors: ---------------------------
+            # Zynthian ports: ---------------------------
+            # Input Monitors => Audio routed from Zynthian Layer
             if data[2].startswith("monitor_out_"):
                 num = data[2].replace("monitor_out_","",1)
                 return "mod-monitor:out_%s" % num
-            # End Zynthian input monitors ------------------------
+            # ZynMidiRouter => MIDI routed to/from Zynthian
+            if data[2].startswith("zynthian_"):
+                subport = data[2].replace("zynthian_","",1)
+                return "ZynMidiRouter:%s" % subport
+            # -------------------------------------------
             
             return "system:%s" % data[2]
 
