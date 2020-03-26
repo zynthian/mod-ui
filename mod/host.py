@@ -2184,10 +2184,13 @@ class Host(object):
                 symbol = port['symbol']
                 value  = port['value']
 
-                if pluginData['ports'][symbol] != value:
-                    pluginData['ports'][symbol] = value
-                    self.send_notmodified("param_set %d %s %f" % (instance_id, symbol, value))
-                    self.msg_callback("param_set %s %s %f" % (instance, symbol, value))
+                try:
+                    if pluginData['ports'][symbol] != value:
+                        pluginData['ports'][symbol] = value
+                        self.send_notmodified("param_set %d %s %f" % (instance_id, symbol, value))
+                        self.msg_callback("param_set %s %s %f" % (instance, symbol, value))
+                except:
+                    pass
 
                 # don't address "bad" ports
                 if symbol in badports:
